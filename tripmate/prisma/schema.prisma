@@ -1,0 +1,193 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Visibility {
+  PRIVATE
+  SHARED
+  PUBLIC
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum ActivityCategory {
+  ATTRACTION
+  FOOD
+  TRANSIT
+  LODGING
+  CUSTOM
+}
+
+enum TransitMode {
+  SCOOTER
+  CAB
+  TRAIN
+  FLIGHT
+  WALK
+}
+
+enum ChecklistCategory {
+  DOCUMENTS
+  CLOTHING
+  MEDICINES
+  ELECTRONICS
+  BEACH_GEAR
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ExpenseCategory {
+  FOOD
+  STAY
+  TRANSIT
+  ACTIVITIES
+  MISC
+}
+
+enum NoteColor {
+  yellow
+  pink
+  blue
+  green
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  avatar       String?
+  upiId        String?
+  travelStyle  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships  TripMember[]
+  checklists   ChecklistItem[] @relation("AssignedChecklists")
+  expenses     Expense[]       @relation("PaidExpenses")
+  notes        Note[]          @relation("AuthoredNotes")
+}
+
+model Trip {
+  id            String     @id @default(uuid())
+  title         String
+  destination   String
+  stateOrRegion String
+  startDate     String
+  endDate       String
+  coverImage    String?
+  lat           Float
+  lng           Float
+  totalBudget   Float
+  currency      String     @default("INR")
+  visibility    Visibility @default(PRIVATE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  members       TripMember[]
+  days          Day[]
+  checklist     ChecklistItem[]
+  expenses      Expense[]
+  notes         Note[]
+}
+
+model TripMember {
+  id     String @id @default(uuid())
+  userId String
+  tripId String
+  role   Role   @default(VIEWER)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trip   Trip   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tripId])
+}
+
+model Day {
+  id        String          @id @default(uuid())
+  tripId    String
+  dayNumber Int
+  date      String
+  title     String
+
+  trip      Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  items     ItineraryItem[]
+
+  @@unique([tripId, dayNumber])
+}
+
+model ItineraryItem {
+  id             String           @id @default(uuid())
+  dayId          String
+  title          String
+  category       ActivityCategory
+  startTime      String
+  endTime        String
+  estimatedCost  Float
+  lat            Float
+  lng            Float
+  locationName   String
+  bookingRef     String?
+  notes          String?
+  orderIndex     Int
+  transitMode    TransitMode?
+  transitMinutes Int?
+  transitKm      Float?
+
+  day            Day              @relation(fields: [dayId], references: [id], onDelete: Cascade)
+
+  @@index([dayId, orderIndex])
+}
+
+model ChecklistItem {
+  id           String            @id @default(uuid())
+  tripId       String
+  text         String
+  category     ChecklistCategory
+  isCompleted  Boolean           @default(false)
+  assignedToId String?
+  priority     Priority          @default(MEDIUM)
+
+  trip         Trip              @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  assignedTo   User?             @relation("AssignedChecklists", fields: [assignedToId], references: [id], onDelete: SetNull)
+}
+
+model Expense {
+  id       String          @id @default(uuid())
+  tripId   String
+  title    String
+  amount   Float
+  category ExpenseCategory
+  paidById String
+  date     String
+
+  trip     Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  paidBy   User            @relation("PaidExpenses", fields: [paidById], references: [id], onDelete: Cascade)
+}
+
+model Note {
+  id        String    @id @default(uuid())
+  tripId    String
+  authorId  String
+  text      String
+  color     NoteColor @default(yellow)
+  rotation  Float
+  createdAt String
+
+  trip      Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  author    User      @relation("AuthoredNotes", fields: [authorId], references: [id], onDelete: Cascade)
+}
