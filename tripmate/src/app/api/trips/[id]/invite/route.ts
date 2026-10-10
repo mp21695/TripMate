@@ -39,6 +39,7 @@ export async function POST(
         tripId,
         role,
         type: 'trip_invite',
+        purpose: 'invite',
       },
       '7d'
     );

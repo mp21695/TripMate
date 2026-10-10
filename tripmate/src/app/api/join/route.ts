@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
 
     if (
       !payload ||
+      payload.purpose !== 'invite' ||
       payload.type !== 'trip_invite' ||
       typeof payload.tripId !== 'string' ||
       typeof payload.role !== 'string'
@@ -71,7 +72,6 @@ export async function POST(req: NextRequest) {
       const currentRank = ROLE_RANK[existingMember.role];
       const inviteRank = ROLE_RANK[inviteRole] || 1;
 
-      // Upgrade role if invite role is higher rank, never downgrade
       let finalRole = existingMember.role;
       if (inviteRank > currentRank) {
         finalRole = inviteRole;

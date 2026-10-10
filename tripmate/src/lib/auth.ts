@@ -10,7 +10,12 @@ const getJwtSecretKey = () => {
 
 export const TOKEN_COOKIE_NAME = 'tripmate_token';
 
-export async function signToken(payload: Record<string, unknown>, expiresIn = '7d') {
+export type TokenPurpose = 'session' | 'invite';
+
+export async function signToken(
+  payload: Record<string, unknown> & { purpose: TokenPurpose },
+  expiresIn = '7d'
+) {
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -53,7 +58,9 @@ export async function getCurrentUser(req?: NextRequest | Request) {
   if (!token) return null;
 
   const payload = await verifyToken(token);
-  if (!payload || typeof payload.userId !== 'string') return null;
+  if (!payload || payload.purpose !== 'session' || typeof payload.userId !== 'string') {
+    return null;
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: payload.userId },
