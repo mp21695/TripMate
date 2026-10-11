@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/external/rateLimiter';
-import { generateStructuredAI, GeminiNotConfiguredError } from '@/lib/external/geminiAI';
+import {
+  generateStructuredAI,
+  GeminiNotConfiguredError,
+  GeminiValidationError,
+} from '@/lib/external/geminiAI';
+import {
+  verifyAndGeocodeItem,
+  snapUnverifiedCoordinates,
+  processDayItemsTransit,
+} from '@/lib/external/aiPostProcess';
+import { searchPlaces } from '@/lib/external/googlePlaces';
 
 const draftRequestSchema = z.object({
   destination: z.string().min(1, 'Destination is required'),
@@ -67,17 +77,50 @@ export async function POST(req: NextRequest) {
 
     const { destination, days, budget, vibe } = parsed.data;
 
+    // Geocode destination first to resolve center for bounds check
+    let destCenter: { lat: number; lng: number } | undefined;
+    try {
+      const places = await searchPlaces(destination);
+      if (places.length > 0 && typeof places[0].lat === 'number' && typeof places[0].lng === 'number') {
+        destCenter = { lat: places[0].lat, lng: places[0].lng };
+      }
+    } catch {
+      // ignore
+    }
+
+    // If destination cannot be geocoded, skip bounds check (undefined), never reject everything
+    const bounds = destCenter ? { center: destCenter, maxDistanceKm: 70 } : undefined;
+
     const prompt = `Generate a realistic ${days}-day itinerary draft for ${destination}.
 Budget: ₹${budget} total. Vibe: ${vibe}.
-Provide real lat/lng coordinates for places in ${destination}, realistic costs in INR, and times in 12-hour AM/PM format (e.g., "10:30 AM").`;
+REQUIREMENTS:
+- Use real, well-known named places only (e.g. specific cafes, restaurants, hotels, attractions).
+- NEVER write placeholders like "(Example)", "(or similar)", or "(e.g., ...)". If unsure of an exact business name, use a descriptive generic name like "Beach cafe in Anjuna" or "Guesthouse near Palolem Beach".
+- Provide real lat/lng coordinates for places in ${destination}, realistic costs in INR, and times in 12-hour AM/PM format (e.g., "10:30 AM").`;
 
-    const systemInstruction = `You are an expert travel planner. Return JSON matching the schema with dayNumber, title, and items array.`;
+    const systemInstruction = `You are an expert travel planner. Return JSON matching the schema with dayNumber, title, and items array. Never write placeholders like (Example) or (or similar).`;
 
     const result = await generateStructuredAI(prompt, draftResponseSchema, systemInstruction);
+
+    // Post-processing: normalize times, geocode coordinates with 40km check, snap unverified, process transit
+    for (const day of result.days) {
+      for (const item of day.items) {
+        await verifyAndGeocodeItem(item, destination, bounds);
+      }
+      snapUnverifiedCoordinates(day.items);
+      await processDayItemsTransit(day.items);
+    }
+
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     if (err instanceof GeminiNotConfiguredError) {
       return NextResponse.json({ error: 'Gemini not configured' }, { status: 503 });
+    }
+    if (err instanceof GeminiValidationError) {
+      return NextResponse.json(
+        { error: 'AI could not produce a valid result, please try again' },
+        { status: 502 }
+      );
     }
     console.error('AI Draft generation error:', err);
     return NextResponse.json(
