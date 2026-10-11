@@ -9,7 +9,10 @@ import {
   GeminiNotConfiguredError,
   GeminiValidationError,
 } from '@/lib/external/geminiAI';
-import { verifyAndGeocodeItem } from '@/lib/external/aiPostProcess';
+import {
+  verifyAndGeocodeItem,
+  snapUnverifiedCoordinates,
+} from '@/lib/external/aiPostProcess';
 import { Role } from '@prisma/client';
 
 const copilotRequestSchema = z.object({
@@ -76,7 +79,15 @@ export async function POST(req: NextRequest) {
       where: { id: tripId },
       include: {
         days: {
-          select: { id: true, dayNumber: true, date: true, title: true },
+          select: {
+            id: true,
+            dayNumber: true,
+            date: true,
+            title: true,
+            items: {
+              select: { lat: true, lng: true },
+            },
+          },
         },
       },
     });
@@ -111,9 +122,12 @@ ${availableDays}
 User Directive: "${prompt}"
 
 ${dayInstruction} Create a single itinerary waypoint item.
-Provide real lat/lng near ${trip.destination}, realistic cost in INR, and 12-hour AM/PM times.`;
+REQUIREMENTS:
+- Use real, well-known named places only near ${trip.destination}.
+- NEVER write placeholders like "(Example)", "(or similar)". If unsure of an exact venue name, use a descriptive generic name like "Beach cafe in Anjuna".
+- Provide real lat/lng near ${trip.destination}, realistic cost in INR, and 12-hour AM/PM times.`;
 
-    const systemInstruction = `You are AI Copilot for TripMate. Return JSON with 'dayId' (exact string ID from available list) and 'item'.`;
+    const systemInstruction = `You are AI Copilot for TripMate. Return JSON with 'dayId' (exact string ID from available list) and 'item'. Never write placeholders like (Example) or (or similar).`;
 
     const result = await generateStructuredAI(fullPrompt, copilotResponseSchema, systemInstruction);
 
@@ -126,8 +140,20 @@ Provide real lat/lng near ${trip.destination}, realistic cost in INR, and 12-hou
       );
     }
 
+    // Sanity-check bounds: reject point > 40 km from trip coordinates
+    const bounds = {
+      center: { lat: trip.lat, lng: trip.lng },
+      maxDistanceKm: 40,
+    };
+
     // Post-processing: normalize times, geocode coordinates, set coordsVerified, remove transit
-    await verifyAndGeocodeItem(result.item, trip.destination);
+    await verifyAndGeocodeItem(result.item, trip.destination, bounds);
+
+    // Snap unverified item to nearest existing item of the same day within 10 km
+    if (!result.item.coordsVerified && validDay.items.length > 0) {
+      snapUnverifiedCoordinates([result.item], validDay.items);
+    }
+
     delete result.item.transitToNext;
 
     return NextResponse.json(result, { status: 200 });

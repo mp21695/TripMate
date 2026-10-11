@@ -1,6 +1,25 @@
 import { TransitMode } from '@prisma/client';
 import { searchPlaces } from './googlePlaces';
-import { calculateTransit } from './mapboxTransit';
+import { calculateTransit, haversineDistanceKm } from './mapboxTransit';
+
+export { haversineDistanceKm };
+
+export interface GeocodeBounds {
+  center: { lat: number; lng: number };
+  maxDistanceKm: number;
+}
+
+/**
+ * Strips placeholders such as "(Example)", "(or similar)", "(or similar shack)"
+ * and extra spaces from names.
+ */
+export function cleanPlaceName(text: string): string {
+  if (!text || typeof text !== 'string') return text;
+  return text
+    .replace(/\s*\([^)]*(?:example|or similar|similar|placeholder)[^)]*\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 /**
  * Normalizes any time string to zero-padded "hh:mm AM/PM" (e.g. "09:00 AM", "01:30 PM").
@@ -39,47 +58,74 @@ export function normalizeTime(raw: string): string {
 /**
  * Tries to correct an item's coordinates by geocoding its locationName through
  * OSM Nominatim / places search biased to destination.
- * Keeps AI coordinates if geocoding finds nothing, and sets coordsVerified.
+ * Checks distance sanity bounds (rejecting matches that exceed bounds.maxDistanceKm).
+ * Keeps AI coordinates if geocoding finds nothing or is out of bounds, and sets coordsVerified.
  */
 export async function verifyAndGeocodeItem(
   item: {
+    title?: string;
     locationName: string;
     lat: number;
     lng: number;
     startTime: string;
     endTime: string;
+    notes?: string;
     coordsVerified?: boolean;
     transitToNext?: any;
     [key: string]: any;
   },
-  destination?: string
+  destination?: string,
+  bounds?: GeocodeBounds
 ): Promise<void> {
+  // Strip parentheticals like (Example), (or similar)
+  if (item.title) item.title = cleanPlaceName(item.title);
+  item.locationName = cleanPlaceName(item.locationName);
+  if (item.notes) item.notes = cleanPlaceName(item.notes);
+
   // Normalize times
   item.startTime = normalizeTime(item.startTime);
   item.endTime = normalizeTime(item.endTime);
 
-  const query = destination ? `${item.locationName}, ${destination}` : item.locationName;
+  const cleanLoc = item.locationName;
+  const query = destination ? `${cleanLoc}, ${destination}` : cleanLoc;
+
+  const isCandidateValid = (place: { lat: number; lng: number }): boolean => {
+    if (typeof place.lat !== 'number' || typeof place.lng !== 'number') return false;
+    if (bounds) {
+      const dist = haversineDistanceKm(bounds.center.lat, bounds.center.lng, place.lat, place.lng);
+      if (dist > bounds.maxDistanceKm) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   try {
     const places = await searchPlaces(query);
-    if (places && places.length > 0 && typeof places[0].lat === 'number' && typeof places[0].lng === 'number') {
-      item.lat = places[0].lat;
-      item.lng = places[0].lng;
-      item.coordsVerified = true;
-      return;
+    if (places && places.length > 0) {
+      const match = places.find(isCandidateValid);
+      if (match) {
+        item.lat = match.lat;
+        item.lng = match.lng;
+        item.coordsVerified = true;
+        return;
+      }
     }
   } catch {
-    // Fall back to locationName alone
+    // Fall back to cleanLoc alone
   }
 
   if (destination) {
     try {
-      const places = await searchPlaces(item.locationName);
-      if (places && places.length > 0 && typeof places[0].lat === 'number' && typeof places[0].lng === 'number') {
-        item.lat = places[0].lat;
-        item.lng = places[0].lng;
-        item.coordsVerified = true;
-        return;
+      const places = await searchPlaces(cleanLoc);
+      if (places && places.length > 0) {
+        const match = places.find(isCandidateValid);
+        if (match) {
+          item.lat = match.lat;
+          item.lng = match.lng;
+          item.coordsVerified = true;
+          return;
+        }
       }
     } catch {
       // Fall back
@@ -88,6 +134,49 @@ export async function verifyAndGeocodeItem(
 
   // Keep AI coordinates
   item.coordsVerified = false;
+}
+
+/**
+ * When coordinates are unverified, snaps them to the nearest coordsVerified item
+ * of the same day if one exists within 10 km, otherwise keeps the AI value.
+ * coordsVerified remains false.
+ */
+export function snapUnverifiedCoordinates(
+  items: Array<{
+    lat: number;
+    lng: number;
+    coordsVerified?: boolean;
+    [key: string]: any;
+  }>,
+  referenceVerifiedItems?: Array<{ lat: number; lng: number }>
+): void {
+  const verifiedList: Array<{ lat: number; lng: number }> = [
+    ...items.filter((it) => it.coordsVerified === true),
+    ...(referenceVerifiedItems || []),
+  ];
+
+  if (verifiedList.length === 0) return;
+
+  for (const item of items) {
+    if (!item.coordsVerified) {
+      let nearest: { lat: number; lng: number } | null = null;
+      let minDistance = Infinity;
+
+      for (const verified of verifiedList) {
+        const dist = haversineDistanceKm(item.lat, item.lng, verified.lat, verified.lng);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearest = verified;
+        }
+      }
+
+      if (nearest && minDistance <= 10) {
+        item.lat = nearest.lat;
+        item.lng = nearest.lng;
+      }
+      item.coordsVerified = false;
+    }
+  }
 }
 
 /**

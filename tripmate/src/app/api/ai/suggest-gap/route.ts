@@ -9,7 +9,10 @@ import {
   GeminiNotConfiguredError,
   GeminiValidationError,
 } from '@/lib/external/geminiAI';
-import { verifyAndGeocodeItem } from '@/lib/external/aiPostProcess';
+import {
+  verifyAndGeocodeItem,
+  snapUnverifiedCoordinates,
+} from '@/lib/external/aiPostProcess';
 import { Role } from '@prisma/client';
 
 const gapRequestSchema = z.object({
@@ -90,16 +93,28 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = `Suggest 2 to 3 places/activities to fill a time gap between ${windowStart} and ${windowEnd} near coordinates (${nearLat}, ${nearLng}) in ${trip.destination}.
-Return realistic lat/lng coordinates nearby, costs in INR, and times formatted as AM/PM within the ${windowStart} to ${windowEnd} window.`;
+REQUIREMENTS:
+- Suggest real, well-known named places only within 5 km of coordinates (${nearLat}, ${nearLng}).
+- NEVER write placeholders like "(Example)", "(or similar)". If unsure, use a descriptive generic name like "Beach cafe in Anjuna".
+- Return realistic lat/lng coordinates nearby, costs in INR, and times formatted as AM/PM within the ${windowStart} to ${windowEnd} window.`;
 
-    const systemInstruction = `You are a spatial travel assistant. Return JSON object with a 'suggestions' array containing 2 to 3 items.`;
+    const systemInstruction = `You are a spatial travel assistant. Return JSON object with a 'suggestions' array containing 2 to 3 items. Never include placeholders like (Example) or (or similar).`;
 
     const result = await generateStructuredAI(prompt, gapResponseSchema, systemInstruction);
 
-    // Post-processing: normalize times and geocode coordinates with coordsVerified
+    // Sanity-check bounds: geocoded point must be within 5 km of nearLat/nearLng
+    const bounds = {
+      center: { lat: nearLat, lng: nearLng },
+      maxDistanceKm: 5,
+    };
+
+    // Post-processing: normalize times and geocode coordinates with 5km bounds
     for (const suggestion of result.suggestions) {
-      await verifyAndGeocodeItem(suggestion, trip.destination);
+      await verifyAndGeocodeItem(suggestion, trip.destination, bounds);
     }
+
+    // Snap unverified coordinates to nearest coordsVerified item within 10 km
+    snapUnverifiedCoordinates(result.suggestions, [{ lat: nearLat, lng: nearLng }]);
 
     return NextResponse.json(result, { status: 200 });
   } catch (err) {

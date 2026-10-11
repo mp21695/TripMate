@@ -118,7 +118,7 @@ All AI routes return structured JSON responses, include 1-retry validation on ou
 
 **Normalization & Coordinates:**
 - All `startTime` and `endTime` fields are normalized to zero-padded 12-hour format (`"hh:mm AM/PM"`, e.g. `"09:00 AM"`, `"01:30 PM"`).
-- Every returned item includes `"coordsVerified": boolean` (`true` if geocoding via OpenStreetMap Nominatim/Google Places biased to destination succeeded and corrected lat/lng; `false` if AI-estimated coordinates are retained).
+- Every returned item includes `"coordsVerified": boolean` (`true` means the place was matched by a geocoder within distance bounds, not guaranteed on-the-ground; `false` if geocoding was out of bounds or unmatched, with unverified coordinates snapped to the nearest verified item within 10 km when available).
 - `transitToNext` is omitted on the last item of each day. If `MAPBOX_TOKEN` is configured, transit is recomputed via Mapbox; otherwise `transitToNext` is omitted entirely.
 
 #### `POST /api/ai/generate-draft`
