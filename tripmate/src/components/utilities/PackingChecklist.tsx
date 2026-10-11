@@ -7,11 +7,11 @@ import { CheckSquare, Square, Plus, Trash2, CheckCircle2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export function PackingChecklist({ tripId }: { tripId: string }) {
-  const { activeTrip, toggleChecklist, addChecklist, deleteChecklist } = useTrip();
+  const { activeTrip, toggleChecklist, addChecklist, deleteChecklist, currentUser } = useTrip();
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [newItemText, setNewItemText] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<ChecklistItem['category']>('DOCUMENTS');
-  const [assignedTo, setAssignedTo] = useState('Kabir (You)');
+  const [assignedTo, setAssignedTo] = useState('');
   const [priority, setPriority] = useState<ChecklistItem['priority']>('HIGH');
 
   if (!activeTrip) return null;
@@ -128,20 +128,28 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
           </select>
 
           <select
-            value={assignedTo}
+            value={assignedTo || activeTrip.members[0]?.name || ''}
             onChange={(e) => setAssignedTo(e.target.value)}
             className="sm:col-span-2 bg-[#14161a] border border-white/10 rounded-xs px-2 py-2 text-xs text-white focus:outline-hidden focus:border-white"
           >
-            {activeTrip.members.map((m) => (
-              <option key={m.id} value={m.name}>
-                {m.name}
-              </option>
-            ))}
+            {activeTrip.members.map((m) => {
+              const isMe =
+                currentUser &&
+                (m.id === currentUser.id ||
+                  m.name.toLowerCase().includes(currentUser.name.toLowerCase()) ||
+                  m.name.toLowerCase().includes('(you)'));
+              const label = isMe ? `${m.name.replace(/\s*\(You\)/i, '')} (You)` : m.name;
+              return (
+                <option key={m.id} value={m.name}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
 
           <button
             type="submit"
-            className="sm:col-span-2 flex items-center justify-center space-x-1 bg-white text-black hover:bg-neutral-200 font-medium px-3 py-2 rounded-xs text-xs font-sans uppercase tracking-wider transition-colors"
+            className="sm:col-span-2 flex items-center justify-center space-x-1 bg-white text-black hover:bg-neutral-200 font-medium px-3 py-2 rounded-xs text-xs font-sans uppercase tracking-wider transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Item</span>
@@ -157,57 +165,67 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
             <p className="text-[#8a8c8e] text-xs font-mono">No items in this category.</p>
           </div>
         ) : (
-          filteredItems.map((item) => (
-            <div
-              key={item.id}
-              className={`flex items-center justify-between p-3.5 rounded-xs border transition-all ${
-                item.isCompleted
-                  ? 'bg-[#121417]/50 border-white/5 opacity-50'
-                  : 'bg-[#181b20] border-white/5 hover:border-white/15'
-              }`}
-            >
+          filteredItems.map((item) => {
+            const isAssignedToMe =
+              currentUser &&
+              (item.assignedToName.toLowerCase().includes(currentUser.name.toLowerCase()) ||
+                item.assignedToName.toLowerCase().includes('(you)'));
+            const assignedLabel = isAssignedToMe
+              ? `${item.assignedToName.replace(/\s*\(You\)/i, '')} (You)`
+              : item.assignedToName;
+
+            return (
               <div
-                className="flex items-center space-x-3 cursor-pointer flex-1"
-                onClick={() => handleToggle(item.id, item.isCompleted)}
+                key={item.id}
+                className={`flex items-center justify-between p-3.5 rounded-xs border transition-all ${
+                  item.isCompleted
+                    ? 'bg-[#121417]/50 border-white/5 opacity-50'
+                    : 'bg-[#181b20] border-white/5 hover:border-white/15'
+                }`}
               >
-                {item.isCompleted ? (
-                  <CheckSquare className="w-5 h-5 text-emerald-400 shrink-0" />
-                ) : (
-                  <Square className="w-5 h-5 text-[#8a8c8e] hover:text-white shrink-0 transition-colors" />
-                )}
-                <div>
-                  <span
-                    className={`text-sm block ${
-                      item.isCompleted
-                        ? 'line-through text-[#8a8c8e]'
-                        : 'text-white'
-                    }`}
-                  >
-                    {item.text}
-                  </span>
-                  <div className="flex items-center space-x-2 mt-0.5">
-                    <span className="font-mono text-[9px] text-[#8a8c8e] uppercase tracking-wider">
-                      {item.category}
+                <div
+                  className="flex items-center space-x-3 cursor-pointer flex-1"
+                  onClick={() => handleToggle(item.id, item.isCompleted)}
+                >
+                  {item.isCompleted ? (
+                    <CheckSquare className="w-5 h-5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <Square className="w-5 h-5 text-[#8a8c8e] hover:text-white shrink-0 transition-colors" />
+                  )}
+                  <div>
+                    <span
+                      className={`text-sm block ${
+                        item.isCompleted
+                          ? 'line-through text-[#8a8c8e]'
+                          : 'text-white'
+                      }`}
+                    >
+                      {item.text}
                     </span>
-                    <span className="text-[10px] text-[#8a8c8e]">•</span>
-                    <span className="font-mono text-[9px] text-white/80 bg-white/5 px-1.5 py-0.2 rounded-2xs border border-white/10">
-                      Assigned to: {item.assignedToName}
-                    </span>
+                    <div className="flex items-center space-x-2 mt-0.5">
+                      <span className="font-mono text-[9px] text-[#8a8c8e] uppercase tracking-wider">
+                        {item.category}
+                      </span>
+                      <span className="text-[10px] text-[#8a8c8e]">•</span>
+                      <span className="font-mono text-[9px] text-white/80 bg-white/5 px-1.5 py-0.2 rounded-2xs border border-white/10">
+                        Assigned to: {assignedLabel}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
               {/* Delete */}
               <button
                 onClick={() => deleteChecklist(tripId, item.id)}
-                className="p-1.5 text-[#8a8c8e] hover:text-rose-400 transition-colors"
+                className="p-1.5 text-[#8a8c8e] hover:text-rose-400 transition-colors cursor-pointer"
                 title="Remove item"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-          ))
-        )}
+          );
+        })
+      )}
       </div>
     </div>
   );

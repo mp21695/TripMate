@@ -99,7 +99,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full font-mono text-[10px] text-white border border-white/10">
-                  {currentTrip.weatherSummary.icon} {currentTrip.weatherSummary.temp}°C
+                  {currentTrip.weatherSummary?.icon || '☀️'} {currentTrip.weatherSummary?.temp ?? 26}°C
                 </div>
 
                 <div className="absolute bottom-6 left-6 right-6">

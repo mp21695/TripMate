@@ -215,7 +215,7 @@ export async function processDayItemsTransit(
     const current = items[i];
     const next = items[i + 1];
 
-    let mode = TransitMode.CAB;
+    let mode: TransitMode = TransitMode.CAB;
     if (current.transitToNext && typeof current.transitToNext.mode === 'string') {
       const parsedMode = current.transitToNext.mode.toUpperCase();
       if (Object.values(TransitMode).includes(parsedMode as TransitMode)) {

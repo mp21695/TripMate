@@ -5,9 +5,10 @@ import { useTrip } from '@/context/TripContext';
 import { Expense } from '@/types';
 import { IndianRupee, QrCode, Plus, Trash2, ArrowUpRight, CheckCircle2, TrendingUp } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { CurrencyConverter } from './CurrencyConverter';
 
 export function BudgetHub({ tripId }: { tripId: string }) {
-  const { activeTrip, addExpense, deleteExpense } = useTrip();
+  const { activeTrip, addExpense, deleteExpense, currentUser } = useTrip();
   const [showUpiModal, setShowUpiModal] = useState(false);
   const [selectedPayee, setSelectedPayee] = useState<{ name: string; upiId: string; amount: number } | null>(null);
 
@@ -15,7 +16,7 @@ export function BudgetHub({ tripId }: { tripId: string }) {
   const [expenseTitle, setExpenseTitle] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState<Expense['category']>('FOOD');
-  const [paidBy, setPaidBy] = useState('Kabir (You)');
+  const [paidBy, setPaidBy] = useState('');
 
   if (!activeTrip) return null;
 
@@ -152,6 +153,9 @@ export function BudgetHub({ tripId }: { tripId: string }) {
         </div>
       </div>
 
+      {/* Member 3 Currency & Forex Converter */}
+      <CurrencyConverter />
+
       {/* Add Expense Form */}
       <form onSubmit={handleAddExpense} className="bg-[#181b20] border border-white/5 rounded-xs p-5">
         <h4 className="text-xs font-mono uppercase text-white font-medium mb-3 tracking-wider">
@@ -190,20 +194,28 @@ export function BudgetHub({ tripId }: { tripId: string }) {
           </select>
 
           <select
-            value={paidBy}
+            value={paidBy || activeTrip.members[0]?.name || ''}
             onChange={(e) => setPaidBy(e.target.value)}
             className="sm:col-span-2 bg-[#14161a] border border-white/10 rounded-xs px-2 py-2 text-xs text-white focus:outline-hidden focus:border-white"
           >
-            {activeTrip.members.map((m) => (
-              <option key={m.id} value={m.name}>
-                Paid by {m.name.split(' ')[0]}
-              </option>
-            ))}
+            {activeTrip.members.map((m) => {
+              const isMe =
+                currentUser &&
+                (m.id === currentUser.id ||
+                  m.name.toLowerCase().includes(currentUser.name.toLowerCase()) ||
+                  m.name.toLowerCase().includes('(you)'));
+              const label = isMe ? `${m.name.replace(/\s*\(You\)/i, '')} (You)` : m.name;
+              return (
+                <option key={m.id} value={m.name}>
+                  Paid by {label.split(' ')[0]}
+                </option>
+              );
+            })}
           </select>
 
           <button
             type="submit"
-            className="sm:col-span-1 bg-white text-black hover:bg-neutral-200 px-3 py-2 rounded-xs text-xs font-medium transition-colors flex items-center justify-center"
+            className="sm:col-span-1 bg-white text-black hover:bg-neutral-200 px-3 py-2 rounded-xs text-xs font-medium transition-colors flex items-center justify-center cursor-pointer"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -221,21 +233,30 @@ export function BudgetHub({ tripId }: { tripId: string }) {
               No expenses recorded yet.
             </div>
           ) : (
-            expenses.map((exp) => (
-              <div
-                key={exp.id}
-                className="flex items-center justify-between p-3.5 bg-[#181b20] hover:bg-[#1b1f24] transition-colors"
-              >
-                <div>
-                  <h5 className="text-xs font-medium text-white">{exp.title}</h5>
-                  <div className="flex items-center space-x-2 text-[10px] font-mono text-[#8a8c8e] mt-0.5">
-                    <span>{exp.category}</span>
-                    <span>•</span>
-                    <span>Paid by {exp.paidByName}</span>
-                    <span>•</span>
-                    <span>{exp.date}</span>
+            expenses.map((exp) => {
+              const isPaidByMe =
+                currentUser &&
+                (exp.paidByName.toLowerCase().includes(currentUser.name.toLowerCase()) ||
+                  exp.paidByName.toLowerCase().includes('(you)'));
+              const payerDisplayName = isPaidByMe
+                ? `${exp.paidByName.replace(/\s*\(You\)/i, '')} (You)`
+                : exp.paidByName;
+
+              return (
+                <div
+                  key={exp.id}
+                  className="flex items-center justify-between p-3.5 bg-[#181b20] hover:bg-[#1b1f24] transition-colors"
+                >
+                  <div>
+                    <h5 className="text-xs font-medium text-white">{exp.title}</h5>
+                    <div className="flex items-center space-x-2 text-[10px] font-mono text-[#8a8c8e] mt-0.5">
+                      <span>{exp.category}</span>
+                      <span>•</span>
+                      <span>Paid by {payerDisplayName}</span>
+                      <span>•</span>
+                      <span>{exp.date}</span>
+                    </div>
                   </div>
-                </div>
 
                 <div className="flex items-center space-x-4">
                   <span className="font-serif text-base font-normal text-white">
@@ -250,10 +271,11 @@ export function BudgetHub({ tripId }: { tripId: string }) {
                   </button>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            );
+          })
+        )}
       </div>
+    </div>
 
       {/* UPI QR Modal */}
       {showUpiModal && selectedPayee && (

@@ -24,40 +24,77 @@ export function MountainAuthSection({
   const [style, setStyle] = useState('Himalayan High Passes');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setErrorMessage(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setIsSuccess(true);
+    try {
+      const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
+      const payload =
+        mode === 'register'
+          ? { fullName: name, email, password, style }
+          : { email, password };
 
-      try {
-        localStorage.setItem(
-          'tripmate_user',
-          JSON.stringify({
-            name: name || 'Explorer',
-            email: email || 'explorer@tripmate.in',
-            style: style,
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-          })
-        );
-      } catch {
-        // ignore localStorage error
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed. Please check credentials.');
       }
 
+      setIsSuccess(true);
       setTimeout(() => {
         router.push('/dashboard');
-      }, 700);
-    }, 900);
+        router.refresh();
+      }, 600);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Authentication failed';
+      setErrorMessage(msg);
+      setIsLoading(false);
+    }
   };
 
-  const handleGuestLogin = () => {
+  const handleGuestLogin = async () => {
     setIsLoading(true);
-    setTimeout(() => {
-      router.push('/dashboard');
-    }, 500);
+    setErrorMessage(null);
+    try {
+      // Auto-authenticate with the seeded demo user Kabir
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'kabir@tripmate.dev', password: 'demo1234' }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Demo login failed');
+      }
+
+      setIsSuccess(true);
+      setTimeout(() => {
+        router.push('/dashboard');
+        router.refresh();
+      }, 500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to enter demo';
+      setErrorMessage(msg);
+      setIsLoading(false);
+    }
+  };
+
+  const fillDemoCredentials = () => {
+    setEmail('kabir@tripmate.dev');
+    setPassword('demo1234');
+    setMode('signin');
+    setErrorMessage(null);
   };
 
   return (
@@ -138,6 +175,25 @@ export function MountainAuthSection({
                 ? 'Create an expedition profile to build collaborative Indian itineraries, split expenses, and share memory scrapbooks.'
                 : 'Access your saved trips, active squad boards, and live UPI split calculations.'}
             </p>
+
+            {/* Demo Helper Action */}
+            <div className="mt-3 flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-[11px] font-mono">
+              <span className="text-[#8e9299]">Demo user: <strong className="text-white">kabir@tripmate.dev</strong></span>
+              <button
+                type="button"
+                onClick={fillDemoCredentials}
+                className="text-cyan-400 hover:text-cyan-300 underline uppercase tracking-wider text-[10px] cursor-pointer"
+              >
+                Autofill
+              </button>
+            </div>
+
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="mt-3 p-2.5 rounded-lg bg-red-950/40 border border-red-500/40 text-red-300 text-xs font-mono">
+                {errorMessage}
+              </div>
+            )}
           </div>
 
           {/* Form */}

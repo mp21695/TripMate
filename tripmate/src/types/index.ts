@@ -15,6 +15,7 @@ export interface ItineraryItem {
   locationName: string;
   bookingRef?: string;
   notes?: string;
+  coordsVerified?: boolean;
   transitToNext?: {
     mode: TransitMode;
     durationMinutes: number;
@@ -81,7 +82,7 @@ export interface Trip {
     lat: number;
     lng: number;
   };
-  weatherSummary: {
+  weatherSummary?: {
     temp: number;
     condition: string;
     icon: string;
@@ -92,3 +93,13 @@ export interface Trip {
   expenses: Expense[];
   notes: ScrapbookNote[];
 }
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string | null;
+  upiId?: string | null;
+  travelStyle?: string | null;
+}
+

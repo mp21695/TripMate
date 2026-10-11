@@ -102,6 +102,13 @@ export function ActivityCard({ item, index, onDelete, onHover }: ActivityCardPro
                   REF: {item.bookingRef}
                 </span>
               )}
+
+              {/* Coordinates Verification Badge */}
+              {item.coordsVerified === false && (
+                <span className="text-[9px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/40 px-1.5 py-0.5 rounded-2xs uppercase tracking-wider">
+                  ⚠️ Approximate location
+                </span>
+              )}
             </div>
 
             {/* Title */}

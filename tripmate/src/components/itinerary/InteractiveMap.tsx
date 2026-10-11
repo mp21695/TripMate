@@ -28,6 +28,13 @@ export function InteractiveMap({
   const minLng = lngs.length ? Math.min(...lngs) - 0.05 : 73.6;
   const maxLng = lngs.length ? Math.max(...lngs) + 0.05 : 74.2;
 
+  const centerLat = Number(((minLat + maxLat) / 2).toFixed(4));
+  const centerLng = Number(((minLng + maxLng) / 2).toFixed(4));
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+  const mapboxImageUrl = mapboxToken
+    ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${centerLng},${centerLat},11,0/900x700@2x?access_token=${mapboxToken}`
+    : null;
+
   const getCoordinatesPercent = (lat: number, lng: number) => {
     const latSpan = maxLat - minLat || 0.1;
     const lngSpan = maxLng - minLng || 0.1;
@@ -50,13 +57,27 @@ export function InteractiveMap({
           <span className="text-[9px] font-mono text-white/60 border border-white/10 px-1.5 py-0.5 rounded-full">
             {items.length} STOPS
           </span>
+          {mapboxToken && (
+            <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/30 px-1.5 py-0.5 rounded-full">
+              MAPBOX
+            </span>
+          )}
         </div>
       </div>
 
       {/* SVG Vector Map Rendering Canvas */}
       <div className="relative flex-1 w-full h-full bg-[#0c0e11] overflow-hidden select-none">
-        {/* Subtle dot matrix grid */}
-        <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:24px_24px] opacity-70" />
+        {/* Mapbox Imagery or Subtle dot matrix grid */}
+        {mapboxImageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={mapboxImageUrl}
+            alt="Mapbox Dark Route Canvas"
+            className="absolute inset-0 w-full h-full object-cover opacity-50 filter brightness-90 contrast-125"
+          />
+        ) : (
+          <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:24px_24px] opacity-70" />
+        )}
 
         {/* Route Lines SVG */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
@@ -109,6 +130,8 @@ export function InteractiveMap({
                   className={`w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold shadow-2xl transition-colors ${
                     isSelected
                       ? 'bg-white text-black ring-4 ring-white/30'
+                      : item.coordsVerified === false
+                      ? 'bg-[#181b20] text-amber-400 border border-amber-500/60 ring-2 ring-amber-500/20'
                       : 'bg-[#181b20] text-white border border-white/40 hover:border-white'
                   }`}
                 >
@@ -129,6 +152,11 @@ export function InteractiveMap({
                   <p className="text-[10px] text-[#8a8c8e] truncate mt-0.5 font-mono">
                     {item.locationName}
                   </p>
+                  {item.coordsVerified === false && (
+                    <div className="mt-1 text-[9px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/30 px-1 py-0.5 rounded-2xs">
+                      ⚠️ Approximate location
+                    </div>
+                  )}
                   <div className="mt-2 flex items-center justify-between text-[9px] font-mono text-[#8a8c8e] pt-1.5 border-t border-white/10">
                     <span>EST: ₹{item.estimatedCost.toLocaleString('en-IN')}</span>
                     <span className="text-white flex items-center">

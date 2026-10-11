@@ -10,6 +10,7 @@ import { BudgetHub } from '@/components/utilities/BudgetHub';
 import { TripNotes } from '@/components/utilities/TripNotes';
 import { ExportModal } from '@/components/export/ExportModal';
 import { AiCopilotPanel } from '@/components/ai/AiCopilotPanel';
+import { WeatherWidget } from '@/components/weather/WeatherWidget';
 import {
   Share2,
   Download,
@@ -24,7 +25,7 @@ import {
 
 export function TripWorkspaceClient({ tripId }: { tripId: string }) {
   const router = useRouter();
-  const { trips, setActiveTripId } = useTrip();
+  const { trips, setActiveTripId, currentUser } = useTrip();
 
   const [activeTab, setActiveTab] = useState<'ITINERARY' | 'CHECKLIST' | 'BUDGET' | 'NOTES'>('ITINERARY');
   const [showExportModal, setShowExportModal] = useState(false);
@@ -55,12 +56,34 @@ export function TripWorkspaceClient({ tripId }: { tripId: string }) {
     );
   }
 
-  const handleCopyLink = () => {
-    if (typeof window !== 'undefined') {
-      navigator.clipboard.writeText(window.location.href);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2500);
+  const handleCopyLink = async () => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const res = await fetch(`/api/trips/${trip.id}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'EDITOR' }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.link) {
+          const inviteUrl = `${window.location.origin}${data.link}`;
+          await navigator.clipboard.writeText(inviteUrl);
+          setCopiedLink(true);
+          setTimeout(() => setCopiedLink(false), 2500);
+          return;
+        }
+      }
+    } catch {
+      // Fallback below
     }
+
+    // Graceful fallback to current workspace URL
+    navigator.clipboard.writeText(window.location.href);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2500);
   };
 
   return (
@@ -88,13 +111,12 @@ export function TripWorkspaceClient({ tripId }: { tripId: string }) {
               <span>RETURN TO EXPERIENCES</span>
             </button>
 
-            {/* Climate Tag */}
-            <div className="bg-black/60 backdrop-blur-md border border-white/10 px-3.5 py-1.5 rounded-full text-[10px] font-mono text-white flex items-center space-x-2">
-              <span>{trip.weatherSummary.icon}</span>
-              <span>{trip.weatherSummary.temp}°C</span>
-              <span className="text-white/40">•</span>
-              <span className="text-white/80">{trip.weatherSummary.condition}</span>
-            </div>
+            {/* Dynamic Climate Tag */}
+            <WeatherWidget
+              lat={trip.coordinates.lat}
+              lng={trip.coordinates.lng}
+              initialSummary={trip.weatherSummary}
+            />
           </div>
 
           {/* Title & Metadata */}

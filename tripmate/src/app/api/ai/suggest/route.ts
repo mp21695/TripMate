@@ -32,6 +32,7 @@ const itemSchema = z.object({
   lng: z.number(),
   locationName: z.string(),
   notes: z.string().optional(),
+  coordsVerified: z.boolean().optional(),
   transitToNext: z
     .object({
       mode: z.enum(['SCOOTER', 'CAB', 'TRAIN', 'FLIGHT', 'WALK']),
