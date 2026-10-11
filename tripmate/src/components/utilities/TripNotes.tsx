@@ -6,15 +6,39 @@ import { ScrapbookNote } from '@/types';
 import { PushPin } from '@/components/ui/PushPin';
 import { Plus, Trash2, MessageSquare } from 'lucide-react';
 
+function formatRelativeTime(dateInput: string): string {
+  if (!dateInput) return 'Just now';
+  if (dateInput.toLowerCase().includes('just now') || dateInput.toLowerCase().includes('ago')) {
+    return dateInput;
+  }
+
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) return dateInput;
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHours = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSec < 45) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+}
+
 export function TripNotes({ tripId }: { tripId: string }) {
-  const { activeTrip, addNote, deleteNote } = useTrip();
+  const { activeTrip, addNote, deleteNote, currentUser } = useTrip();
   const [newText, setNewText] = useState('');
-  const [author, setAuthor] = useState('Kabir (You)');
   const [color, setColor] = useState<ScrapbookNote['color']>('yellow');
 
   if (!activeTrip) return null;
 
   const notes = activeTrip.notes;
+  const currentAuthorName = currentUser?.name || 'Explorer';
 
   const colorStyles: Record<ScrapbookNote['color'], string> = {
     yellow: 'bg-[#fff9d2] text-[#4d4400] border-[#edd679]',
@@ -26,7 +50,7 @@ export function TripNotes({ tripId }: { tripId: string }) {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newText.trim()) return;
-    addNote(tripId, author, newText.trim(), color);
+    addNote(tripId, currentAuthorName, newText.trim(), color);
     setNewText('');
   };
 
@@ -60,7 +84,7 @@ export function TripNotes({ tripId }: { tripId: string }) {
             placeholder="Write a quick note (e.g. Caretaker phone: 98234-56789, Check helmet before riding)..."
             value={newText}
             onChange={(e) => setNewText(e.target.value)}
-            className="flex-1 bg-[#121417] border border-[#2b303a] rounded-md px-3 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-hidden focus:border-amber-500 w-full"
+            className="flex-1 bg-[#121417] border border-[#2b303a] rounded-md px-3 py-2 text-xs text-neutral-200 placeholder-neutral-500 focus:outline-hidden focus:border-amber-500 w-full font-mono"
           />
 
           <div className="flex items-center space-x-2 shrink-0">
@@ -71,7 +95,7 @@ export function TripNotes({ tripId }: { tripId: string }) {
                   key={c}
                   type="button"
                   onClick={() => setColor(c)}
-                  className={`w-5 h-5 rounded-full transition-transform ${
+                  className={`w-5 h-5 rounded-full transition-transform cursor-pointer ${
                     color === c ? 'scale-125 ring-2 ring-white/60' : 'opacity-70 hover:opacity-100'
                   } ${
                     c === 'yellow'
@@ -88,7 +112,7 @@ export function TripNotes({ tripId }: { tripId: string }) {
 
             <button
               type="submit"
-              className="flex items-center space-x-1.5 bg-amber-600 hover:bg-amber-500 text-neutral-950 font-bold px-3 py-2 rounded-md text-xs font-mono transition-colors"
+              className="flex items-center space-x-1.5 bg-amber-600 hover:bg-amber-500 text-neutral-950 font-bold px-3 py-2 rounded-md text-xs font-mono transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Pin Note</span>
@@ -105,39 +129,50 @@ export function TripNotes({ tripId }: { tripId: string }) {
             <p className="text-neutral-400 text-xs font-mono">No pinned notes yet. Be the first to leave one!</p>
           </div>
         ) : (
-          notes.map((note) => (
-            <div
-              key={note.id}
-              style={{ transform: `rotate(${note.rotation}deg)` }}
-              className={`p-5 rounded-xs shadow-xl border relative transition-transform hover:scale-102 hover:rotate-0 hover:z-20 ${colorStyles[note.color]}`}
-            >
-              {/* Pushpin at Top Center */}
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-                <PushPin />
-              </div>
+          notes.map((note) => {
+            const isCurrentUser =
+              currentUser?.name &&
+              (note.authorName.toLowerCase().includes(currentUser.name.toLowerCase()) ||
+                note.authorName.toLowerCase().includes('(you)'));
 
-              {/* Note Content */}
-              <div className="pt-2">
-                <p className="font-serif text-sm leading-relaxed font-medium">
-                  &ldquo;{note.text}&rdquo;
-                </p>
+            const displayName = isCurrentUser
+              ? `${note.authorName.replace(/\s*\(You\)/i, '')} (You)`
+              : note.authorName;
 
-                <div className="mt-4 pt-2 border-t border-black/10 flex items-center justify-between text-[11px] font-mono opacity-75">
-                  <span>— {note.authorName}</span>
-                  <div className="flex items-center space-x-2">
-                    <span>{note.createdAt}</span>
-                    <button
-                      onClick={() => deleteNote(tripId, note.id)}
-                      className="text-black/50 hover:text-black transition-colors"
-                      title="Unpin note"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+            return (
+              <div
+                key={note.id}
+                style={{ transform: `rotate(${note.rotation}deg)` }}
+                className={`p-5 rounded-xs shadow-xl border relative transition-transform hover:scale-102 hover:rotate-0 hover:z-20 ${colorStyles[note.color]}`}
+              >
+                {/* Pushpin at Top Center */}
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+                  <PushPin />
+                </div>
+
+                {/* Note Content */}
+                <div className="pt-2">
+                  <p className="font-serif text-sm leading-relaxed font-medium">
+                    &ldquo;{note.text}&rdquo;
+                  </p>
+
+                  <div className="mt-4 pt-2 border-t border-black/10 flex items-center justify-between text-[11px] font-mono opacity-75">
+                    <span>— {displayName}</span>
+                    <div className="flex items-center space-x-2">
+                      <span>{formatRelativeTime(note.createdAt)}</span>
+                      <button
+                        onClick={() => deleteNote(tripId, note.id)}
+                        className="text-black/50 hover:text-black transition-colors cursor-pointer"
+                        title="Unpin note"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { ActivityCard } from './ActivityCard';
 import { InteractiveMap } from './InteractiveMap';
+import { PlaceDiscoveryDrawer } from './PlaceDiscoveryDrawer';
 import { ItineraryItem, ActivityCategory } from '@/types';
 import { Plus, Calendar, MapPin, Sparkles, X, Compass } from 'lucide-react';
 
@@ -26,6 +27,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showPlacesDrawer, setShowPlacesDrawer] = useState(false);
 
   // Form states for adding an activity
   const [title, setTitle] = useState('');
@@ -143,13 +145,23 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
               </p>
             </div>
 
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="inline-flex items-center space-x-1.5 bg-white text-black hover:bg-neutral-200 font-sans font-medium px-4 py-2 rounded-full text-xs tracking-wider uppercase transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>ADD STOP</span>
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowPlacesDrawer(true)}
+                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-white border border-white/10 font-sans font-medium px-3.5 py-2 rounded-full text-xs tracking-wider uppercase transition-colors cursor-pointer"
+              >
+                <MapPin className="w-3.5 h-3.5 text-white/70" />
+                <span>EXPLORE PLACES</span>
+              </button>
+
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center space-x-1.5 bg-white text-black hover:bg-neutral-200 font-sans font-medium px-4 py-2 rounded-full text-xs tracking-wider uppercase transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>ADD STOP</span>
+              </button>
+            </div>
           </div>
 
           {/* Dnd Sortable Context */}
@@ -324,6 +336,14 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
           </div>
         </div>
       )}
+
+      {/* Place Discovery Drawer */}
+      <PlaceDiscoveryDrawer
+        tripId={tripId}
+        isOpen={showPlacesDrawer}
+        onClose={() => setShowPlacesDrawer(false)}
+        destination={activeTrip.destination}
+      />
     </div>
   );
 }

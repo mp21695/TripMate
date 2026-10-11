@@ -94,7 +94,10 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
     }
   };
 
-  const tripUrl = `https://tripmate.app/trips/${trip.id}`;
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  const tripUrl = `${baseUrl}/trips/${trip.id}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto">
@@ -210,7 +213,7 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
                       </h4>
                     </div>
                     <span className="font-mono text-[9px] text-white/80 bg-black/60 px-2 py-0.5 rounded-2xs">
-                      {trip.weatherSummary.icon} {trip.weatherSummary.temp}°C
+                      {trip.weatherSummary?.icon || '☀️'} {trip.weatherSummary?.temp ?? 26}°C
                     </span>
                   </div>
                 </div>
