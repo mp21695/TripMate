@@ -13,6 +13,7 @@ import {
   verifyAndGeocodeItem,
   snapUnverifiedCoordinates,
 } from '@/lib/external/aiPostProcess';
+import { searchPlaces } from '@/lib/external/googlePlaces';
 import { Role } from '@prisma/client';
 
 const copilotRequestSchema = z.object({
@@ -140,11 +141,31 @@ REQUIREMENTS:
       );
     }
 
-    // Sanity-check bounds: reject point > 40 km from trip coordinates
-    const bounds = {
-      center: { lat: trip.lat, lng: trip.lng },
-      maxDistanceKm: 40,
-    };
+    // Resolve center for bounds check: use trip coordinates or fallback to geocoding destination
+    let center: { lat: number; lng: number } | undefined;
+    if (
+      typeof trip.lat === 'number' &&
+      typeof trip.lng === 'number' &&
+      (trip.lat !== 0 || trip.lng !== 0)
+    ) {
+      center = { lat: trip.lat, lng: trip.lng };
+    } else {
+      try {
+        const destPlaces = await searchPlaces(trip.destination);
+        if (
+          destPlaces.length > 0 &&
+          typeof destPlaces[0].lat === 'number' &&
+          typeof destPlaces[0].lng === 'number'
+        ) {
+          center = { lat: destPlaces[0].lat, lng: destPlaces[0].lng };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // If center can't be resolved, skip bounds check (undefined), never reject everything
+    const bounds = center ? { center, maxDistanceKm: 70 } : undefined;
 
     // Post-processing: normalize times, geocode coordinates, set coordsVerified, remove transit
     await verifyAndGeocodeItem(result.item, trip.destination, bounds);

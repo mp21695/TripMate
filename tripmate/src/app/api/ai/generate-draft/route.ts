@@ -77,6 +77,20 @@ export async function POST(req: NextRequest) {
 
     const { destination, days, budget, vibe } = parsed.data;
 
+    // Geocode destination first to resolve center for bounds check
+    let destCenter: { lat: number; lng: number } | undefined;
+    try {
+      const places = await searchPlaces(destination);
+      if (places.length > 0 && typeof places[0].lat === 'number' && typeof places[0].lng === 'number') {
+        destCenter = { lat: places[0].lat, lng: places[0].lng };
+      }
+    } catch {
+      // ignore
+    }
+
+    // If destination cannot be geocoded, skip bounds check (undefined), never reject everything
+    const bounds = destCenter ? { center: destCenter, maxDistanceKm: 70 } : undefined;
+
     const prompt = `Generate a realistic ${days}-day itinerary draft for ${destination}.
 Budget: ₹${budget} total. Vibe: ${vibe}.
 REQUIREMENTS:
@@ -87,30 +101,6 @@ REQUIREMENTS:
     const systemInstruction = `You are an expert travel planner. Return JSON matching the schema with dayNumber, title, and items array. Never write placeholders like (Example) or (or similar).`;
 
     const result = await generateStructuredAI(prompt, draftResponseSchema, systemInstruction);
-
-    // Resolve destination center for 40 km sanity check
-    let destCenter: { lat: number; lng: number } | undefined;
-    try {
-      const places = await searchPlaces(destination);
-      if (places.length > 0) {
-        destCenter = { lat: places[0].lat, lng: places[0].lng };
-      }
-    } catch {
-      // ignore
-    }
-
-    if (!destCenter) {
-      const allLats = result.days.flatMap((d) => d.items.map((it) => it.lat)).filter(Boolean);
-      const allLngs = result.days.flatMap((d) => d.items.map((it) => it.lng)).filter(Boolean);
-      if (allLats.length > 0 && allLngs.length > 0) {
-        destCenter = {
-          lat: allLats.reduce((a, b) => a + b, 0) / allLats.length,
-          lng: allLngs.reduce((a, b) => a + b, 0) / allLngs.length,
-        };
-      }
-    }
-
-    const bounds = destCenter ? { center: destCenter, maxDistanceKm: 40 } : undefined;
 
     // Post-processing: normalize times, geocode coordinates with 40km check, snap unverified, process transit
     for (const day of result.days) {
