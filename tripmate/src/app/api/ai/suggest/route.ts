@@ -4,12 +4,18 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { requireTripRole, handleRbacError } from '@/lib/rbac';
 import { checkRateLimit } from '@/lib/external/rateLimiter';
-import { generateStructuredAI, GeminiNotConfiguredError } from '@/lib/external/geminiAI';
+import {
+  generateStructuredAI,
+  GeminiNotConfiguredError,
+  GeminiValidationError,
+} from '@/lib/external/geminiAI';
+import { verifyAndGeocodeItem } from '@/lib/external/aiPostProcess';
 import { Role } from '@prisma/client';
 
 const copilotRequestSchema = z.object({
   tripId: z.string().min(1, 'tripId is required'),
   prompt: z.string().min(1, 'prompt is required'),
+  dayId: z.string().optional(),
 });
 
 const itemSchema = z.object({
@@ -53,9 +59,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { tripId, prompt } = parsed.data;
+    const { tripId, prompt, dayId } = parsed.data;
 
-    await requireTripRole(user.id, tripId, [Role.OWNER, Role.EDITOR, Role.VIEWER]);
+    // RBAC: Requires OWNER or EDITOR
+    await requireTripRole(user.id, tripId, [Role.OWNER, Role.EDITOR]);
 
     const { allowed } = checkRateLimit(user.id, 'ai_copilot_suggest', 10, 60);
     if (!allowed) {
@@ -78,7 +85,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Trip not found' }, { status: 404 });
     }
 
-    const availableDays = trip.days.map((d) => `ID: "${d.id}" (Day ${d.dayNumber}: ${d.title})`).join('\n');
+    // Verify dayId belongs to the trip if provided in request
+    if (dayId) {
+      const dayExists = trip.days.some((d) => d.id === dayId);
+      if (!dayExists) {
+        return NextResponse.json(
+          { error: 'Invalid dayId: day does not belong to this trip' },
+          { status: 400 }
+        );
+      }
+    }
+
+    const availableDays = trip.days
+      .map((d) => `ID: "${d.id}" (Day ${d.dayNumber}: ${d.title})`)
+      .join('\n');
+
+    const dayInstruction = dayId
+      ? `Assign strictly to dayId "${dayId}".`
+      : `Select the best matching dayId from the available days list.`;
 
     const fullPrompt = `Destination: ${trip.destination}, ${trip.stateOrRegion} (Coordinates: ${trip.lat}, ${trip.lng}).
 Available Trip Days:
@@ -86,23 +110,36 @@ ${availableDays}
 
 User Directive: "${prompt}"
 
-Select the best matching dayId from the available days list, and create a single itinerary waypoint item.
+${dayInstruction} Create a single itinerary waypoint item.
 Provide real lat/lng near ${trip.destination}, realistic cost in INR, and 12-hour AM/PM times.`;
 
     const systemInstruction = `You are AI Copilot for TripMate. Return JSON with 'dayId' (exact string ID from available list) and 'item'.`;
 
     const result = await generateStructuredAI(fullPrompt, copilotResponseSchema, systemInstruction);
 
-    // Verify dayId returned belongs to trip
+    // Verify generated dayId belongs to trip
     const validDay = trip.days.find((d) => d.id === result.dayId);
     if (!validDay) {
-      result.dayId = trip.days[0].id;
+      return NextResponse.json(
+        { error: 'Invalid dayId: generated day does not belong to this trip' },
+        { status: 400 }
+      );
     }
+
+    // Post-processing: normalize times, geocode coordinates, set coordsVerified, remove transit
+    await verifyAndGeocodeItem(result.item, trip.destination);
+    delete result.item.transitToNext;
 
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     if (err instanceof GeminiNotConfiguredError) {
       return NextResponse.json({ error: 'Gemini not configured' }, { status: 503 });
+    }
+    if (err instanceof GeminiValidationError) {
+      return NextResponse.json(
+        { error: 'AI could not produce a valid result, please try again' },
+        { status: 502 }
+      );
     }
     return handleRbacError(err);
   }

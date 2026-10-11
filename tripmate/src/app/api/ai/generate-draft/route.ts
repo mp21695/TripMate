@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getCurrentUser } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/external/rateLimiter';
-import { generateStructuredAI, GeminiNotConfiguredError } from '@/lib/external/geminiAI';
+import {
+  generateStructuredAI,
+  GeminiNotConfiguredError,
+  GeminiValidationError,
+} from '@/lib/external/geminiAI';
+import { verifyAndGeocodeItem, processDayItemsTransit } from '@/lib/external/aiPostProcess';
 
 const draftRequestSchema = z.object({
   destination: z.string().min(1, 'Destination is required'),
@@ -74,10 +79,25 @@ Provide real lat/lng coordinates for places in ${destination}, realistic costs i
     const systemInstruction = `You are an expert travel planner. Return JSON matching the schema with dayNumber, title, and items array.`;
 
     const result = await generateStructuredAI(prompt, draftResponseSchema, systemInstruction);
+
+    // Post-processing: normalize times, geocode coordinates, and process transit
+    for (const day of result.days) {
+      for (const item of day.items) {
+        await verifyAndGeocodeItem(item, destination);
+      }
+      await processDayItemsTransit(day.items);
+    }
+
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     if (err instanceof GeminiNotConfiguredError) {
       return NextResponse.json({ error: 'Gemini not configured' }, { status: 503 });
+    }
+    if (err instanceof GeminiValidationError) {
+      return NextResponse.json(
+        { error: 'AI could not produce a valid result, please try again' },
+        { status: 502 }
+      );
     }
     console.error('AI Draft generation error:', err);
     return NextResponse.json(

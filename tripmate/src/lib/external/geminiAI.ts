@@ -8,6 +8,13 @@ export class GeminiNotConfiguredError extends Error {
   }
 }
 
+export class GeminiValidationError extends Error {
+  constructor(message = 'AI could not produce a valid result, please try again') {
+    super(message);
+    this.name = 'GeminiValidationError';
+  }
+}
+
 function getGeminiClient(): { ai: GoogleGenAI; model: string } {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey.trim() === '') {
@@ -65,6 +72,6 @@ export async function generateStructuredAI<T>(
     return validated;
   } catch (err) {
     if (err instanceof GeminiNotConfiguredError) throw err;
-    throw new Error('AI output generation failed validation after retry');
+    throw new GeminiValidationError();
   }
 }

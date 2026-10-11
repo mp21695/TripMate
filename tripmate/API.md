@@ -114,7 +114,12 @@ Recalculates ordered transit buffers for all waypoints in a day.
 
 ### 3. Gemini AI Intelligence Routes
 
-All AI routes return structured JSON responses, include 1-retry validation on output, and emit `503 Service Unavailable` (`{ "error": "Gemini not configured" }`) when `GEMINI_API_KEY` is not set.
+All AI routes return structured JSON responses, include 1-retry validation on output, and emit `503 Service Unavailable` (`{ "error": "Gemini not configured" }`) when `GEMINI_API_KEY` is not set. If AI validation fails after retry, routes return `502 Bad Gateway` (`{ "error": "AI could not produce a valid result, please try again" }`).
+
+**Normalization & Coordinates:**
+- All `startTime` and `endTime` fields are normalized to zero-padded 12-hour format (`"hh:mm AM/PM"`, e.g. `"09:00 AM"`, `"01:30 PM"`).
+- Every returned item includes `"coordsVerified": boolean` (`true` if geocoding via OpenStreetMap Nominatim/Google Places biased to destination succeeded and corrected lat/lng; `false` if AI-estimated coordinates are retained).
+- `transitToNext` is omitted on the last item of each day. If `MAPBOX_TOKEN` is configured, transit is recomputed via Mapbox; otherwise `transitToNext` is omitted entirely.
 
 #### `POST /api/ai/generate-draft`
 Generates a complete multi-day itinerary draft.
@@ -128,12 +133,12 @@ Generates a complete multi-day itinerary draft.
     "vibe": "Coastal & Chill"
   }
   ```
-- **Response (200 OK)**: `{ "days": [ ... ] }`
+- **Response (200 OK)**: `{ "days": [ { "dayNumber": 1, "title": "...", "items": [ { ..., "coordsVerified": true } ] } ] }`
 
 #### `POST /api/ai/suggest-gap`
 Suggests 2–3 waypoints to fill a specific time gap.
 - **Auth**: Session Cookie
-- **Role**: `OWNER`, `EDITOR`, or `VIEWER` of `tripId`
+- **Role**: `OWNER` or `EDITOR` of `tripId`
 - **Request Body**:
   ```json
   {
@@ -145,20 +150,23 @@ Suggests 2–3 waypoints to fill a specific time gap.
     "nearLng": 73.7438
   }
   ```
-- **Response (200 OK)**: `{ "suggestions": [ ... ] }`
+- **Validations**: `dayId` must belong to `tripId` (returns `400 Bad Request` if invalid).
+- **Response (200 OK)**: `{ "suggestions": [ { ..., "coordsVerified": true } ] }`
 
 #### `POST /api/ai/suggest`
 AI Copilot suggestion endpoint choosing the best day for a natural language prompt.
 - **Auth**: Session Cookie
-- **Role**: `OWNER`, `EDITOR`, or `VIEWER` of `tripId`
+- **Role**: `OWNER` or `EDITOR` of `tripId`
 - **Request Body**:
   ```json
   {
     "tripId": "goa-2026",
-    "prompt": "Add a scenic sunset viewpoint before dinner"
+    "prompt": "Add a scenic sunset viewpoint before dinner",
+    "dayId": "day-1" // Optional: constrain to specific day
   }
   ```
-- **Response (200 OK)**: `{ "dayId": "day-1", "item": { ... } }`
+- **Validations**: `dayId` (if provided or chosen) must belong to `tripId` (returns `400 Bad Request` if invalid).
+- **Response (200 OK)**: `{ "dayId": "day-1", "item": { ..., "coordsVerified": true } }`
 
 ---
 
