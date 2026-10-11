@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { serializeTrip, FullPrismaTrip } from '@/lib/serializers';
+import { fetchUnsplashCover } from '@/lib/external/unsplashCover';
 import { Role } from '@prisma/client';
 
 const fullTripInclude = {
@@ -98,6 +99,12 @@ export async function POST(req: NextRequest) {
 
     const dates = generateDateRange(startDate, endDate);
 
+    // Fetch Unsplash cover if no coverImage provided
+    let finalCoverImage = coverImage;
+    if (!finalCoverImage || finalCoverImage.trim() === '') {
+      finalCoverImage = await fetchUnsplashCover(destination);
+    }
+
     const trip = await prisma.trip.create({
       data: {
         title,
@@ -109,7 +116,7 @@ export async function POST(req: NextRequest) {
         currency: currency || 'INR',
         lat,
         lng,
-        coverImage,
+        coverImage: finalCoverImage,
         members: {
           create: {
             userId: user.id,

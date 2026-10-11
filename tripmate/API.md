@@ -16,13 +16,13 @@ http://localhost:3000/api
 All authenticated endpoints use JWT tokens stored in an `httpOnly`, `sameSite=lax` cookie named `tripmate_token` (or passed via `Authorization: Bearer <token>` header).
 
 ### JWT Token Claims & Purpose Scopes
-- **Session Tokens** (`purpose: "session"`): Issued on `/api/auth/login` & `/api/auth/register`. Required for accessing application routes and `/api/auth/me`.
+- **Session Tokens** (`purpose: "session"`): Issued on `/api/auth/login` & `/api/auth/register`. Required for accessing application routes, `/api/auth/me`, and external services.
 - **Invite Tokens** (`purpose: "invite"`): Issued on `/api/trips/[id]/invite`. Only valid for `/api/join`.
 
 ### Role-Based Access Control (RBAC)
 Trip member access levels:
 - **`OWNER`**: Full permissions (Create/Read/Update/Delete trip, manage members, generate invite links, edit itinerary/utilities).
-- **`EDITOR`**: Read/Write access (Create/Edit/Delete itinerary items, reorder items across days, add/edit/delete checklist items, expenses, and notes). Cannot edit trip header, invite members, or delete the trip.
+- **`EDITOR`**: Read/Write access (Create/Edit/Delete itinerary items, reorder items across days, recalculate transit, add/edit/delete checklist items, expenses, and notes).
 - **`VIEWER`**: Read-only access to trip workspace and modules.
 
 ---
@@ -34,240 +34,147 @@ Trip member access levels:
 #### `POST /api/auth/register`
 Creates a new explorer account and sets the session cookie.
 - **Auth**: None
-- **Request Body**:
-  ```json
-  {
-    "fullName": "Kabir Sharma",
-    "email": "kabir@tripmate.dev",
-    "password": "demo1234",
-    "style": "Himalayan High Passes"
-  }
-  ```
-- **Response (201 Created)**:
-  ```json
-  {
-    "user": {
-      "id": "usr-uuid",
-      "email": "kabir@tripmate.dev",
-      "name": "Kabir Sharma",
-      "avatar": null,
-      "upiId": null,
-      "travelStyle": "Himalayan High Passes",
-      "createdAt": "2026-10-10T12:00:00.000Z"
-    }
-  }
-  ```
-- **Errors**: `400` (Validation error), `409` (Email already registered).
+- **Request Body**: `{ "fullName": "Kabir", "email": "kabir@tripmate.dev", "password": "demo1234", "style": "Explorer" }`
+- **Response (201 Created)**: `{ "user": { "id": "...", "email": "...", "name": "..." } }`
 
 #### `POST /api/auth/login`
 Authenticates existing credentials and sets session cookie.
 - **Auth**: None
-- **Request Body**:
-  ```json
-  {
-    "email": "kabir@tripmate.dev",
-    "password": "demo1234"
-  }
-  ```
-- **Response (200 OK)**:
-  ```json
-  {
-    "user": {
-      "id": "usr-uuid",
-      "email": "kabir@tripmate.dev",
-      "name": "Kabir (You)"
-    }
-  }
-  ```
-- **Errors**: `401` (`"Invalid credentials"`).
+- **Request Body**: `{ "email": "kabir@tripmate.dev", "password": "demo1234" }`
+- **Response (200 OK)**: `{ "user": { ... } }`
 
 #### `POST /api/auth/logout`
 Clears session cookie.
 - **Auth**: Session cookie
-- **Response (200 OK)**:
-  ```json
-  { "message": "Logged out successfully" }
-  ```
+- **Response (200 OK)**: `{ "message": "Logged out successfully" }`
 
 #### `GET /api/auth/me`
 Retrieves currently logged in user profile.
 - **Auth**: Session cookie (`purpose: "session"`)
+- **Response (200 OK)**: `{ "user": { ... } }`
+
+---
+
+### 2. External Integration Routes (Places, Transit, Cover Images)
+
+#### `GET /api/places/search?q=...`
+Search for locations using Google Places API (New) with OpenStreetMap Nominatim fallback.
+- **Auth**: Session Cookie
+- **Rate Limit**: 20 requests / min per user
+- **Cache**: 10 minutes TTL
 - **Response (200 OK)**:
   ```json
-  { "user": { "id": "usr-uuid", "email": "kabir@tripmate.dev", "name": "Kabir (You)" } }
-  ```
-- **Errors**: `401` (`"Unauthenticated"`).
-
----
-
-### 2. Trip Routes
-
-#### `GET /api/trips`
-Lists all trips the logged-in user belongs to.
-- **Auth**: Session Cookie
-- **Response (200 OK)**:
-  ```json
   {
-    "trips": [ /* Array of full Trip objects in frontend shape */ ]
-  }
-  ```
-
-#### `POST /api/trips`
-Creates a new trip, assigns creator as `OWNER`, and auto-generates 1 `Day` per date in range.
-- **Auth**: Session Cookie
-- **Request Body**:
-  ```json
-  {
-    "title": "Kerala Backwaters & Hills",
-    "destination": "Munnar & Alleppey",
-    "stateOrRegion": "Kerala, India",
-    "startDate": "2026-12-01",
-    "endDate": "2026-12-03",
-    "totalBudget": 35000,
-    "currency": "INR",
-    "lat": 9.9312,
-    "lng": 76.2673,
-    "coverImage": "https://images.unsplash.com/photo-1602216056096-3b40cc0c9944"
-  }
-  ```
-- **Response (201 Created)**:
-  ```json
-  {
-    "trip": {
-      "id": "trip-uuid",
-      "title": "Kerala Backwaters & Hills",
-      "days": [
-        { "id": "day-1", "dayNumber": 1, "date": "2026-12-01", "title": "Day 1", "items": [] },
-        { "id": "day-2", "dayNumber": 2, "date": "2026-12-02", "title": "Day 2", "items": [] },
-        { "id": "day-3", "dayNumber": 3, "date": "2026-12-03", "title": "Day 3", "items": [] }
-      ]
-    }
-  }
-  ```
-- **Errors**: `400` (`endDate cannot be before startDate`).
-
-#### `GET /api/trips/[id]`
-Retrieves full trip bundle.
-- **Auth**: Session Cookie
-- **Role**: `OWNER`, `EDITOR`, or `VIEWER`
-- **Response (200 OK)**: `{ "trip": { ... } }`
-- **Errors**: `403` (Not a member), `404` (Trip not found).
-
-#### `PUT /api/trips/[id]`
-Updates trip metadata.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` only
-- **Request Body**: `{ "title": "Updated Title", "totalBudget": 50000 }`
-- **Response (200 OK)**: `{ "trip": { ... } }`
-
-#### `DELETE /api/trips/[id]`
-Deletes a trip and cascades delete to all items, days, checklist, expenses, and notes.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` only
-- **Response (200 OK)**: `{ "message": "Trip deleted successfully" }`
-
----
-
-### 3. Invites & Joining
-
-#### `POST /api/trips/[id]/invite`
-Generates a signed invite token URL.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` only
-- **Request Body**: `{ "role": "EDITOR" }` (or `"VIEWER"`)
-- **Response (200 OK)**: `{ "link": "/join?token=eyJhbG..." }`
-
-#### `POST /api/join`
-Accepts an invite token and joins the trip.
-- **Auth**: Session Cookie
-- **Request Body**: `{ "token": "eyJhbG..." }`
-- **Response (200 OK)**: `{ "message": "Joined trip successfully", "tripId": "goa-2026", "role": "EDITOR" }`
-- **Errors**: `400` (`"Invalid or expired invite token"`).
-
----
-
-### 4. Itinerary Routes
-
-#### `POST /api/trips/[id]/days/[dayId]/items`
-Creates a new itinerary waypoint.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` or `EDITOR`
-- **Request Body**:
-  ```json
-  {
-    "title": "Sunset Kayaking",
-    "category": "ATTRACTION",
-    "startTime": "05:00 PM",
-    "endTime": "06:30 PM",
-    "estimatedCost": 1500,
-    "lat": 15.0100,
-    "lng": 74.0232,
-    "locationName": "Palolem Beach",
-    "transitToNext": { "mode": "SCOOTER", "durationMinutes": 15, "distanceKm": 4.5 }
-  }
-  ```
-- **Response (201 Created)**: `{ "item": { ... } }`
-
-#### `PUT /api/trips/[id]/items/[itemId]`
-Updates an itinerary waypoint.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` or `EDITOR`
-- **Response (200 OK)**: `{ "item": { ... } }`
-
-#### `DELETE /api/trips/[id]/items/[itemId]`
-Deletes an itinerary waypoint.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` or `EDITOR`
-- **Response (200 OK)**: `{ "message": "Item deleted successfully" }`
-
-#### `PUT /api/trips/[id]/items/reorder`
-Reorders itinerary items within a day or moves items across different days atomically.
-- **Auth**: Session Cookie
-- **Role**: `OWNER` or `EDITOR`
-- **Request Body**:
-  ```json
-  {
-    "moves": [
-      { "itemId": "item-1", "dayId": "day-2", "orderIndex": 0 },
-      { "itemId": "item-2", "dayId": "day-1", "orderIndex": 1 }
+    "places": [
+      {
+        "id": "gplace-123",
+        "name": "Artjuna Cafe",
+        "address": "Anjuna Coastal Road, Goa",
+        "lat": 15.5802,
+        "lng": 73.7438,
+        "rating": 4.6,
+        "photoUrl": "/api/places/photo-proxy?name=places%2F...%2Fphotos%2F..."
+      }
     ]
   }
   ```
-- **Response (200 OK)**: `{ "message": "Reordered items successfully" }`
-- **Errors**: `400` if any item/day in `moves` does not belong to `tripId` (rollback guaranteed).
+
+#### `GET /api/places/photo-proxy?name=...`
+Proxies Google Places photo media requests without exposing API keys to the browser.
+- **Auth**: None (Streamed response)
+- **Response**: Binary image stream (`image/jpeg`) with 24-hour cache headers.
+
+#### `POST /api/transit`
+Computes transit time & distance using Mapbox Directions API (with straight-line Haversine fallback for `FLIGHT`/`TRAIN` or missing tokens).
+- **Auth**: Session Cookie
+- **Request Body**:
+  ```json
+  {
+    "from": { "lat": 15.6268, "lng": 73.8441 },
+    "to": { "lat": 15.5802, "lng": 73.7438 },
+    "mode": "SCOOTER"
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "mode": "SCOOTER",
+    "durationMinutes": 25,
+    "distanceKm": 14.2
+  }
+  ```
+
+#### `POST /api/trips/[id]/days/[dayId]/recalculate-transit`
+Recalculates ordered transit buffers for all waypoints in a day.
+- **Auth**: Session Cookie
+- **Role**: `OWNER` or `EDITOR`
+- **Response (200 OK)**: `{ "day": { ... } }`
 
 ---
 
-### 5. Utility Routes (Checklist, Expenses, Notes)
+### 3. Gemini AI Intelligence Routes
 
-#### `POST /api/trips/[id]/checklist`
-- **Role**: `OWNER` or `EDITOR`
-- **Body**: `{ "text": "Driving License", "category": "DOCUMENTS", "priority": "HIGH", "assignedToId": "usr-id" }`
-- **Response (201 Created)**: `{ "item": { ... } }`
+All AI routes return structured JSON responses, include 1-retry validation on output, and emit `503 Service Unavailable` (`{ "error": "Gemini not configured" }`) when `GEMINI_API_KEY` is not set.
 
-#### `PATCH /api/trips/[id]/checklist/[checkId]`
-- **Role**: `OWNER` or `EDITOR`
-- **Body**: `{ "isCompleted": true }`
-- **Response (200 OK)**: `{ "item": { ... } }`
+#### `POST /api/ai/generate-draft`
+Generates a complete multi-day itinerary draft.
+- **Auth**: Session Cookie
+- **Request Body**:
+  ```json
+  {
+    "destination": "Goa",
+    "days": 3,
+    "budget": 45000,
+    "vibe": "Coastal & Chill"
+  }
+  ```
+- **Response (200 OK)**: `{ "days": [ ... ] }`
 
-#### `DELETE /api/trips/[id]/checklist/[checkId]`
-- **Role**: `OWNER` or `EDITOR`
-- **Response (200 OK)**: `{ "message": "Checklist item deleted successfully" }`
+#### `POST /api/ai/suggest-gap`
+Suggests 2–3 waypoints to fill a specific time gap.
+- **Auth**: Session Cookie
+- **Role**: `OWNER`, `EDITOR`, or `VIEWER` of `tripId`
+- **Request Body**:
+  ```json
+  {
+    "tripId": "goa-2026",
+    "dayId": "day-1",
+    "windowStart": "02:00 PM",
+    "windowEnd": "04:30 PM",
+    "nearLat": 15.5802,
+    "nearLng": 73.7438
+  }
+  ```
+- **Response (200 OK)**: `{ "suggestions": [ ... ] }`
 
-#### `POST /api/trips/[id]/expenses`
-- **Role**: `OWNER` or `EDITOR`
-- **Body**: `{ "title": "Villa Booking", "amount": 16500, "category": "STAY", "date": "2026-11-01", "paidById": "usr-id" }`
-- **Response (201 Created)**: `{ "expense": { ... } }`
+#### `POST /api/ai/suggest`
+AI Copilot suggestion endpoint choosing the best day for a natural language prompt.
+- **Auth**: Session Cookie
+- **Role**: `OWNER`, `EDITOR`, or `VIEWER` of `tripId`
+- **Request Body**:
+  ```json
+  {
+    "tripId": "goa-2026",
+    "prompt": "Add a scenic sunset viewpoint before dinner"
+  }
+  ```
+- **Response (200 OK)**: `{ "dayId": "day-1", "item": { ... } }`
 
-#### `DELETE /api/trips/[id]/expenses/[expenseId]`
-- **Role**: `OWNER` or `EDITOR`
-- **Response (200 OK)**: `{ "message": "Expense deleted successfully" }`
+---
 
-#### `POST /api/trips/[id]/notes`
-- **Role**: `OWNER` or `EDITOR`
-- **Body**: `{ "text": "Keep cash for ATMs!", "color": "yellow", "authorId": "usr-id" }`
-- **Response (201 Created)**: `{ "note": { ... } }`
+### 4. Trip CRUD & Utility Routes
 
-#### `DELETE /api/trips/[id]/notes/[noteId]`
-- **Role**: `OWNER` or `EDITOR`
-- **Response (200 OK)**: `{ "message": "Note deleted successfully" }`
+- `GET /api/trips`: List user trips.
+- `POST /api/trips`: Create trip (auto-fetches Unsplash cover if `coverImage` omitted).
+- `GET /api/trips/[id]`: Full trip bundle.
+- `PUT /api/trips/[id]`: Update trip header (`OWNER` only).
+- `DELETE /api/trips/[id]`: Delete trip (`OWNER` only).
+- `POST /api/trips/[id]/invite`: Generate invite link (`OWNER` only).
+- `POST /api/join`: Join trip with invite token.
+- `POST /api/trips/[id]/days/[dayId]/items`: Add item (`OWNER`/`EDITOR`).
+- `PUT /api/trips/[id]/items/[itemId]`: Edit item (`OWNER`/`EDITOR`).
+- `DELETE /api/trips/[id]/items/[itemId]`: Delete item (`OWNER`/`EDITOR`).
+- `PUT /api/trips/[id]/items/reorder`: Atomic multi-item or cross-day reordering (`OWNER`/`EDITOR`).
+- `POST / PATCH / DELETE /api/trips/[id]/checklist/...`: Manage packing checklist.
+- `POST / DELETE /api/trips/[id]/expenses/...`: Manage trip expenses.
+- `POST / DELETE /api/trips/[id]/notes/...`: Manage corkboard notes.
