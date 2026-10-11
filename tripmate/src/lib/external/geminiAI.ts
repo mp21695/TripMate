@@ -19,7 +19,8 @@ function getGeminiClient(): { ai: GoogleGenAI; model: string } {
 }
 
 /**
- * Executes a Gemini request with structured JSON parsing and 1 retry on Zod validation failure.
+ * Executes a Gemini request with structured JSON output and 1 retry on failure.
+ * Converts the Zod schema to JSON Schema for the @google/genai SDK responseSchema configuration.
  */
 export async function generateStructuredAI<T>(
   prompt: string,
@@ -27,6 +28,7 @@ export async function generateStructuredAI<T>(
   systemInstruction?: string
 ): Promise<T> {
   const { ai, model } = getGeminiClient();
+  const jsonSchema = z.toJSONSchema(schema);
 
   const callModel = async (): Promise<string> => {
     const response = await ai.models.generateContent({
@@ -34,6 +36,7 @@ export async function generateStructuredAI<T>(
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
+        responseSchema: jsonSchema,
         systemInstruction,
         temperature: 0.7,
       },
@@ -52,7 +55,6 @@ export async function generateStructuredAI<T>(
     }
   } catch (err) {
     if (err instanceof GeminiNotConfiguredError) throw err;
-    console.warn('Gemini attempt 1 failed, retrying once...', err);
   }
 
   // Attempt 2 (Retry once)
