@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ItineraryItem } from '@/types';
-import { Navigation, Compass, ExternalLink } from 'lucide-react';
+import { Compass, ExternalLink } from 'lucide-react';
 
 interface InteractiveMapProps {
   items: ItineraryItem[];
@@ -19,9 +19,13 @@ export function InteractiveMap({
 }: InteractiveMapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // Normalize lat/lng to a 0-100% SVG box for precise waypoint and arc positioning
-  const lats = items.map((i) => i.lat);
-  const lngs = items.map((i) => i.lng);
+  // Filter only items with valid finite numbers for latitude and longitude
+  const validItems = items.filter(
+    (i) => typeof i.lat === 'number' && typeof i.lng === 'number' && Number.isFinite(i.lat) && Number.isFinite(i.lng)
+  );
+
+  const lats = validItems.map((i) => i.lat);
+  const lngs = validItems.map((i) => i.lng);
 
   const minLat = lats.length ? Math.min(...lats) - 0.05 : 15.0;
   const maxLat = lats.length ? Math.max(...lats) + 0.05 : 15.8;
@@ -36,6 +40,9 @@ export function InteractiveMap({
     : null;
 
   const getCoordinatesPercent = (lat: number, lng: number) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { x: 50, y: 50 };
+    }
     const latSpan = maxLat - minLat || 0.1;
     const lngSpan = maxLng - minLng || 0.1;
     const y = 84 - ((lat - minLat) / latSpan) * 68;
@@ -55,7 +62,7 @@ export function InteractiveMap({
             {destinationName} • ROUTE MAP
           </span>
           <span className="text-[9px] font-mono text-white/60 border border-white/10 px-1.5 py-0.5 rounded-full">
-            {items.length} STOPS
+            {validItems.length} STOPS
           </span>
           {mapboxToken && (
             <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/30 px-1.5 py-0.5 rounded-full">
@@ -80,7 +87,11 @@ export function InteractiveMap({
         )}
 
         {/* Route Lines SVG */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        >
           <defs>
             <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0.8" />
@@ -89,25 +100,26 @@ export function InteractiveMap({
           </defs>
 
           {/* Polyline Path */}
-          {items.length > 1 && (
+          {validItems.length > 1 && (
             <path
-              d={items
+              d={validItems
                 .map((item, index) => {
                   const { x, y } = getCoordinatesPercent(item.lat, item.lng);
-                  return `${index === 0 ? 'M' : 'L'} ${x}% ${y}%`;
+                  return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
                 })
                 .join(' ')}
               fill="none"
               stroke="url(#routeGradient)"
-              strokeWidth="2.5"
-              strokeDasharray="5 3"
+              strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
+              strokeDasharray="4 2"
               className="opacity-90"
             />
           )}
         </svg>
 
         {/* Waypoint Markers */}
-        {items.map((item, index) => {
+        {validItems.map((item, index) => {
           const { x, y } = getCoordinatesPercent(item.lat, item.lng);
           const isSelected = currentHover === item.id;
 

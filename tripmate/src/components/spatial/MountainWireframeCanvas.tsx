@@ -180,12 +180,13 @@ export function MountainWireframeCanvas({ className = '' }: MountainWireframeCan
     // 5. ANIMATION LOOP (LERPED CAMERA & VERTEX DISPLACEMENT RIPPLE)
     // =========================================================================
     let animationId: number;
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
 
-      const elapsed = clock.getElapsedTime();
+      timer.update();
+      const elapsed = timer.getElapsed();
 
       // Fluid damped camera interpolation (lerp)
       curCamera.x += (targetCamera.x - curCamera.x) * 0.05;
@@ -248,6 +249,7 @@ export function MountainWireframeCanvas({ className = '' }: MountainWireframeCan
       mainWireMat.dispose();
       cyanWireMat.dispose();
       orangeWireMat.dispose();
+      timer.dispose();
       renderer.dispose();
     };
   }, []);

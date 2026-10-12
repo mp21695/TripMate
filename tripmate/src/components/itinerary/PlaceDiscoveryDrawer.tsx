@@ -20,6 +20,8 @@ interface PlaceDiscoveryDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   destination: string;
+  days?: import('@/types').DayPlan[];
+  activeDayId?: string;
 }
 
 export function PlaceDiscoveryDrawer({
@@ -27,21 +29,35 @@ export function PlaceDiscoveryDrawer({
   isOpen,
   onClose,
   destination,
+  days: propDays,
+  activeDayId,
 }: PlaceDiscoveryDrawerProps) {
-  const { activeTrip, addItem } = useTrip();
-  const [query, setQuery] = useState(destination || '');
+  const { trips, activeTrip, addItem } = useTrip();
+
+  // Determine canonical trip matching tripId
+  const currentTrip =
+    trips.find((t) => t.id === tripId) ||
+    (activeTrip?.id === tripId ? activeTrip : null) ||
+    activeTrip;
+
+  const resolvedTripId = currentTrip?.id || tripId;
+  const days = (propDays && propDays.length > 0) ? propDays : (currentTrip?.days || activeTrip?.days || []);
+
+  const [userQuery, setUserQuery] = useState<string | null>(null);
+  const query = userQuery !== null ? userQuery : (destination || '');
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAddingPlaceId, setIsAddingPlaceId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [selectedDayId, setSelectedDayId] = useState<string>(
-    activeTrip?.days[0]?.id || ''
-  );
+  const [overrideDayId, setOverrideDayId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<ActivityCategory>('ATTRACTION');
   const [addedPlaceIds, setAddedPlaceIds] = useState<Record<string, boolean>>({});
 
-  if (!isOpen || !activeTrip) return null;
+  // Derive target day from activeDayId or first day, with user override support
+  const activeOrFirstDayId = (activeDayId && days.some((d) => d.id === activeDayId)) ? activeDayId : days[0]?.id || '';
+  const selectedDayId = (overrideDayId && days.some((d) => d.id === overrideDayId)) ? overrideDayId : activeOrFirstDayId;
 
-  const days = activeTrip.days;
+  if (!isOpen) return null;
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -53,7 +69,12 @@ export function PlaceDiscoveryDrawer({
     try {
       const res = await fetch(`/api/places/search?q=${encodeURIComponent(query.trim())}`);
       if (res.status === 429) {
-        setErrorMsg('Search rate limit reached. Please wait a minute and try again.');
+        setErrorMsg('Search rate limit reached (20/min). Please wait a moment and try again.');
+        setIsLoading(false);
+        return;
+      }
+      if (res.status === 401) {
+        setErrorMsg('Authentication expired. Please sign in again.');
         setIsLoading(false);
         return;
       }
@@ -71,37 +92,65 @@ export function PlaceDiscoveryDrawer({
         }
       }
     } catch {
-      setErrorMsg('Network error while searching places.');
+      setErrorMsg('Network error while searching places. Please verify your connection.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleAddPlace = async (place: PlaceResult) => {
-    const targetDayId = selectedDayId || days[0]?.id;
-    if (!targetDayId) return;
+    const targetDayId = selectedDayId || (days.length > 0 ? days[0]?.id : null);
+    if (!targetDayId) {
+      setErrorMsg('No valid schedule day found to add this stop to.');
+      return;
+    }
 
-    await addItem(tripId, targetDayId, {
-      title: place.name,
-      category: selectedCategory,
-      startTime: '11:00 AM',
-      endTime: '01:00 PM',
-      locationName: place.address || place.name,
-      estimatedCost: selectedCategory === 'FOOD' ? 800 : 300,
-      lat: place.lat,
-      lng: place.lng,
-      notes: place.rating ? `Google Rating: ${place.rating} ★` : undefined,
-      transitToNext: {
-        mode: 'SCOOTER',
-        durationMinutes: 15,
-        distanceKm: 4.5,
-      },
-    });
+    if (!resolvedTripId) {
+      setErrorMsg('No valid trip identifier found.');
+      return;
+    }
 
-    setAddedPlaceIds((prev) => ({ ...prev, [place.id]: true }));
-    setTimeout(() => {
-      setAddedPlaceIds((prev) => ({ ...prev, [place.id]: false }));
-    }, 2500);
+    setIsAddingPlaceId(place.id);
+    setErrorMsg(null);
+
+    try {
+      await addItem(resolvedTripId, targetDayId, {
+        title: place.name,
+        category: selectedCategory,
+        startTime: '11:00 AM',
+        endTime: '01:00 PM',
+        locationName: place.address || place.name,
+        estimatedCost: selectedCategory === 'FOOD' ? 800 : 300,
+        lat: Number(place.lat),
+        lng: Number(place.lng),
+        notes: place.rating ? `Google Rating: ${place.rating} ★` : undefined,
+        transitToNext: {
+          mode: 'SCOOTER',
+          durationMinutes: 15,
+          distanceKm: 4.5,
+        },
+      });
+
+      setAddedPlaceIds((prev) => ({ ...prev, [place.id]: true }));
+      setTimeout(() => {
+        setAddedPlaceIds((prev) => ({ ...prev, [place.id]: false }));
+      }, 2500);
+    } catch (err: unknown) {
+      const apiErr = err as { status?: number; message?: string };
+      if (apiErr.status === 401) {
+        setErrorMsg('Session expired (401). Please sign in again to add stops.');
+      } else if (apiErr.status === 403) {
+        setErrorMsg('Access denied (403): You must be an OWNER or EDITOR of this trip.');
+      } else if (apiErr.status === 404) {
+        setErrorMsg(apiErr.message || 'Trip or Day not found on the server (404).');
+      } else if (apiErr.status === 500) {
+        setErrorMsg('Server error (500) while creating stop. Please try again.');
+      } else {
+        setErrorMsg(apiErr.message || 'Network error occurred while adding stop.');
+      }
+    } finally {
+      setIsAddingPlaceId(null);
+    }
   };
 
   return (
@@ -137,7 +186,7 @@ export function PlaceDiscoveryDrawer({
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => setUserQuery(e.target.value)}
               placeholder="Search cafes, viewpoints, stays, forts..."
               className="w-full bg-[#0c0e11] border border-white/10 rounded-full pl-10 pr-24 py-2.5 text-xs text-white focus:outline-hidden focus:border-white font-mono"
             />
@@ -163,7 +212,7 @@ export function PlaceDiscoveryDrawer({
               </label>
               <select
                 value={selectedDayId}
-                onChange={(e) => setSelectedDayId(e.target.value)}
+                onChange={(e) => setOverrideDayId(e.target.value)}
                 className="w-full bg-[#0c0e11] border border-white/10 rounded-xs px-2.5 py-1.5 text-xs text-white focus:outline-hidden focus:border-white font-mono"
               >
                 {days.map((d) => (
@@ -266,10 +315,12 @@ export function PlaceDiscoveryDrawer({
 
                   <button
                     onClick={() => handleAddPlace(place)}
-                    disabled={isAdded}
+                    disabled={isAdded || isAddingPlaceId === place.id}
                     className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-[10px] font-sans font-medium uppercase tracking-wider transition-all cursor-pointer ${
                       isAdded
                         ? 'bg-emerald-500 text-black'
+                        : isAddingPlaceId === place.id
+                        ? 'bg-neutral-600 text-white cursor-wait opacity-80'
                         : 'bg-white text-black hover:bg-neutral-200'
                     }`}
                   >
@@ -277,6 +328,11 @@ export function PlaceDiscoveryDrawer({
                       <>
                         <Check className="w-3 h-3" />
                         <span>ADDED TO DAY</span>
+                      </>
+                    ) : isAddingPlaceId === place.id ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>ADDING...</span>
                       </>
                     ) : (
                       <>

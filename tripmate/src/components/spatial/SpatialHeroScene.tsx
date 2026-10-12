@@ -232,11 +232,11 @@ export function SpatialHeroScene({ className = '' }: SpatialHeroSceneProps) {
 
     // 8. Animation Loop
     let animationFrameId: number;
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
 
     const animate = () => {
-      const delta = clock.getDelta();
-      const elapsed = clock.getElapsedTime();
+      timer.update();
+      const elapsed = timer.getElapsed();
 
       // Smooth mouse easing (lerp)
       mouseX += (targetX - mouseX) * 0.04;
@@ -269,6 +269,7 @@ export function SpatialHeroScene({ className = '' }: SpatialHeroSceneProps) {
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
+      timer.dispose();
       renderer.dispose();
     };
   }, []);

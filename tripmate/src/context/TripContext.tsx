@@ -12,14 +12,14 @@ interface TripContextType {
   setActiveTripId: (id: string) => void;
   refreshUser: () => Promise<void>;
   refreshTrips: () => Promise<void>;
-  refreshTrip: (id: string) => Promise<void>;
+  refreshTrip: (id: string) => Promise<Trip | null>;
   createTrip: (trip: Omit<Trip, 'id' | 'members' | 'days' | 'checklist' | 'expenses' | 'notes' | 'weatherSummary'>) => Promise<string>;
   updateTrip: (id: string, updates: Partial<Trip>) => Promise<void>;
   deleteTrip: (id: string) => Promise<void>;
   // Itinerary items
   reorderItems: (tripId: string, dayId: string, activeId: string, overId: string) => Promise<void>;
   moveItemToDay: (tripId: string, itemId: string, targetDayId: string) => Promise<void>;
-  addItem: (tripId: string, dayId: string, item: Omit<ItineraryItem, 'id' | 'dayId'>) => Promise<void>;
+  addItem: (tripId: string, dayId: string, item: Omit<ItineraryItem, 'id' | 'dayId'>) => Promise<ItineraryItem>;
   deleteItem: (tripId: string, dayId: string, itemId: string) => Promise<void>;
   // Checklist
   toggleChecklist: (tripId: string, itemId: string) => Promise<void>;
@@ -81,7 +81,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, [activeTripId]);
 
   // Fetch single trip with latest details
-  const refreshTrip = useCallback(async (tripId: string) => {
+  const refreshTrip = useCallback(async (tripId: string): Promise<Trip | null> => {
     try {
       const res = await fetch(`/api/trips/${tripId}`);
       if (res.ok) {
@@ -94,11 +94,13 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             }
             return [data.trip, ...prev];
           });
+          return data.trip;
         }
       }
     } catch (err) {
       console.warn(`Failed to refresh trip ${tripId}:`, err);
     }
+    return null;
   }, []);
 
   // Initialize data on mount
@@ -343,14 +345,61 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const addItem = async (tripId: string, dayId: string, itemData: Omit<ItineraryItem, 'id' | 'dayId'>) => {
-    const tempId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const newItem: ItineraryItem = {
-      ...itemData,
-      id: tempId,
-      dayId,
-    };
+  const addItem = async (
+    tripId: string,
+    dayId: string,
+    itemData: Omit<ItineraryItem, 'id' | 'dayId'>
+  ): Promise<ItineraryItem> => {
+    if (!tripId || !dayId) {
+      throw new Error(`Invalid tripId (${tripId}) or dayId (${dayId}) provided to addItem`);
+    }
 
+    let res: Response;
+    try {
+      res = await fetch(`/api/trips/${tripId}/days/${dayId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: itemData.title,
+          category: itemData.category,
+          startTime: itemData.startTime,
+          endTime: itemData.endTime,
+          estimatedCost: itemData.estimatedCost,
+          lat: Number(itemData.lat),
+          lng: Number(itemData.lng),
+          locationName: itemData.locationName,
+          bookingRef: itemData.bookingRef,
+          notes: itemData.notes,
+          transitToNext: itemData.transitToNext,
+        }),
+      });
+    } catch {
+      throw new Error('Network error: Unable to connect to server. Please check your internet connection.');
+    }
+
+    if (!res.ok) {
+      let serverErrorMsg = `Failed to add activity (HTTP ${res.status})`;
+      try {
+        const errJson = await res.json();
+        if (errJson.error) {
+          serverErrorMsg = errJson.error;
+        }
+      } catch {
+        // fallback to default
+      }
+      const apiError = new Error(serverErrorMsg) as Error & { status?: number };
+      apiError.status = res.status;
+      throw apiError;
+    }
+
+    const data = await res.json();
+    if (!data.item) {
+      throw new Error('Server response missing created itinerary item');
+    }
+
+    const createdItem: ItineraryItem = data.item;
+
+    // Directly persist the real server-generated item in React state
     setTrips((prev) =>
       prev.map((trip) => {
         if (trip.id !== tripId) return trip;
@@ -360,44 +409,14 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
             if (day.id !== dayId) return day;
             return {
               ...day,
-              items: [...day.items, newItem],
+              items: [...day.items, createdItem],
             };
           }),
         };
       })
     );
 
-    try {
-      const res = await fetch(`/api/trips/${tripId}/days/${dayId}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(itemData),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.item) {
-          // Replace tempId with actual server-generated id
-          setTrips((prev) =>
-            prev.map((trip) => {
-              if (trip.id !== tripId) return trip;
-              return {
-                ...trip,
-                days: trip.days.map((day) => {
-                  if (day.id !== dayId) return day;
-                  return {
-                    ...day,
-                    items: day.items.map((it) => (it.id === tempId ? data.item : it)),
-                  };
-                }),
-              };
-            })
-          );
-        }
-      }
-    } catch (err) {
-      console.warn('Backend addItem failed:', err);
-    }
+    return createdItem;
   };
 
   const deleteItem = async (tripId: string, dayId: string, itemId: string) => {

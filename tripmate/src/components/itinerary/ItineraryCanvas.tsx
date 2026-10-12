@@ -19,11 +19,16 @@ import {
 import { ActivityCard } from './ActivityCard';
 import { InteractiveMap } from './InteractiveMap';
 import { PlaceDiscoveryDrawer } from './PlaceDiscoveryDrawer';
-import { ItineraryItem, ActivityCategory } from '@/types';
-import { Plus, Calendar, MapPin, Sparkles, X, Compass } from 'lucide-react';
+import { ActivityCategory } from '@/types';
+import { Plus, Calendar, MapPin, Compass } from 'lucide-react';
 
 export function ItineraryCanvas({ tripId }: { tripId: string }) {
-  const { activeTrip, reorderItems, moveItemToDay, addItem, deleteItem } = useTrip();
+  const { trips, activeTrip, reorderItems, moveItemToDay, addItem, deleteItem } = useTrip();
+  const currentTrip =
+    trips.find((t) => t.id === tripId) ||
+    (activeTrip?.id === tripId ? activeTrip : null) ||
+    activeTrip;
+
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -43,15 +48,15 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  if (!activeTrip) return null;
+  if (!currentTrip) return null;
 
-  const currentDay = activeTrip.days[activeDayIndex] || activeTrip.days[0];
+  const currentDay = currentTrip.days[activeDayIndex] || currentTrip.days[0];
   const items = currentDay ? currentDay.items : [];
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (over && active.id !== over.id && currentDay) {
-      reorderItems(tripId, currentDay.id, String(active.id), String(over.id));
+      reorderItems(currentTrip.id, currentDay.id, String(active.id), String(over.id));
     }
   };
 
@@ -59,15 +64,15 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
     e.preventDefault();
     if (!title.trim() || !currentDay) return;
 
-    const baseLat = activeTrip.coordinates.lat + (Math.random() - 0.5) * 0.08;
-    const baseLng = activeTrip.coordinates.lng + (Math.random() - 0.5) * 0.08;
+    const baseLat = currentTrip.coordinates.lat + (Math.random() - 0.5) * 0.08;
+    const baseLng = currentTrip.coordinates.lng + (Math.random() - 0.5) * 0.08;
 
-    addItem(tripId, currentDay.id, {
+    addItem(currentTrip.id, currentDay.id, {
       title: title.trim(),
       category,
       startTime,
       endTime,
-      locationName: locationName.trim() || `${title} (${activeTrip.destination})`,
+      locationName: locationName.trim() || `${title} (${currentTrip.destination})`,
       estimatedCost: parseFloat(estimatedCost) || 0,
       lat: baseLat,
       lng: baseLng,
@@ -91,7 +96,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
       <div className="bg-[#14161a] border border-white/10 p-4 rounded-xs shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Day Tabs */}
         <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-1">
-          {activeTrip.days.map((day, idx) => (
+          {currentTrip.days.map((day, idx) => (
             <button
               key={day.id}
               onClick={() => setActiveDayIndex(idx)}
@@ -111,7 +116,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
         {/* Live Collaborators Presence */}
         <div className="flex items-center space-x-3 shrink-0">
           <div className="flex -space-x-2 overflow-hidden">
-            {activeTrip.members.map((member) => (
+            {currentTrip.members.map((member) => (
               <div
                 key={member.id}
                 className="relative inline-block w-7 h-7 rounded-full ring-2 ring-[#14161a] overflow-hidden"
@@ -191,15 +196,15 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
                       key={item.id}
                       item={item}
                       index={idx}
-                      onDelete={(id) => currentDay && deleteItem(tripId, currentDay.id, id)}
+                      onDelete={(id) => currentDay && deleteItem(currentTrip.id, currentDay.id, id)}
                       onHover={(id) => setHoveredCardId(id)}
-                      availableDays={activeTrip.days.map((d) => ({
+                      availableDays={currentTrip.days.map((d) => ({
                         id: d.id,
                         dayNumber: d.dayNumber,
                         title: d.title,
                       }))}
                       currentDayId={currentDay?.id}
-                      onMoveToDay={(targetDayId) => moveItemToDay(tripId, item.id, targetDayId)}
+                      onMoveToDay={(targetDayId) => moveItemToDay(currentTrip.id, item.id, targetDayId)}
                     />
                   ))}
                 </div>
@@ -212,7 +217,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
         <div className="lg:col-span-5 sticky top-24">
           <InteractiveMap
             items={items}
-            destinationName={activeTrip.destination}
+            destinationName={currentTrip.destination}
             activeItemId={hoveredCardId || undefined}
             onSelectPin={(id) => setHoveredCardId(id)}
           />
@@ -346,10 +351,12 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
 
       {/* Place Discovery Drawer */}
       <PlaceDiscoveryDrawer
-        tripId={tripId}
+        tripId={currentTrip.id}
         isOpen={showPlacesDrawer}
         onClose={() => setShowPlacesDrawer(false)}
-        destination={activeTrip.destination}
+        destination={currentTrip.destination}
+        days={currentTrip.days}
+        activeDayId={currentDay?.id}
       />
     </div>
   );
