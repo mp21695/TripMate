@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
 
   const searchParams = req.nextUrl.searchParams;
   const q = searchParams.get('q');
+  const category = searchParams.get('category') || undefined;
 
   if (!q || q.trim() === '') {
     return NextResponse.json(
@@ -27,6 +28,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const places = await searchPlaces(q);
+  const places = await searchPlaces(q, category);
   return NextResponse.json({ places }, { status: 200 });
 }
