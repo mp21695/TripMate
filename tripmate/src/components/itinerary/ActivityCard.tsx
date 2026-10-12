@@ -11,9 +11,20 @@ interface ActivityCardProps {
   index: number;
   onDelete: (id: string) => void;
   onHover?: (id: string | null) => void;
+  availableDays?: { id: string; dayNumber: number; title: string }[];
+  currentDayId?: string;
+  onMoveToDay?: (targetDayId: string) => void;
 }
 
-export function ActivityCard({ item, index, onDelete, onHover }: ActivityCardProps) {
+export function ActivityCard({
+  item,
+  index,
+  onDelete,
+  onHover,
+  availableDays,
+  currentDayId,
+  onMoveToDay,
+}: ActivityCardProps) {
   const {
     attributes,
     listeners,
@@ -145,13 +156,36 @@ export function ActivityCard({ item, index, onDelete, onHover }: ActivityCardPro
               <span>{item.estimatedCost.toLocaleString('en-IN')}</span>
             </div>
 
-            <button
-              onClick={() => onDelete(item.id)}
-              className="p-1.5 text-[#8d8a83] hover:text-rose-400 hover:bg-rose-950/20 rounded-xs transition-colors"
-              title="Remove waypoint"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center space-x-1.5">
+              {availableDays && availableDays.length > 1 && onMoveToDay && (
+                <select
+                  aria-label="Move waypoint to day"
+                  value={currentDayId || item.dayId}
+                  onChange={(e) => {
+                    const targetId = e.target.value;
+                    if (targetId !== (currentDayId || item.dayId)) {
+                      onMoveToDay(targetId);
+                    }
+                  }}
+                  className="bg-[#08090a] border border-[rgba(255,255,255,0.1)] hover:border-[#ffb000]/60 text-[#8d8a83] hover:text-white rounded-xs px-1.5 py-1 text-[10px] font-mono focus:outline-hidden cursor-pointer"
+                  title="Move waypoint to day"
+                >
+                  {availableDays.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      Day {d.dayNumber}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <button
+                onClick={() => onDelete(item.id)}
+                className="p-1.5 text-[#8d8a83] hover:text-rose-400 hover:bg-rose-950/20 rounded-xs transition-colors cursor-pointer"
+                title="Remove waypoint"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

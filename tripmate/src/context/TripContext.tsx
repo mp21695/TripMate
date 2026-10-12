@@ -18,6 +18,7 @@ interface TripContextType {
   deleteTrip: (id: string) => Promise<void>;
   // Itinerary items
   reorderItems: (tripId: string, dayId: string, activeId: string, overId: string) => Promise<void>;
+  moveItemToDay: (tripId: string, itemId: string, targetDayId: string) => Promise<void>;
   addItem: (tripId: string, dayId: string, item: Omit<ItineraryItem, 'id' | 'dayId'>) => Promise<void>;
   deleteItem: (tripId: string, dayId: string, itemId: string) => Promise<void>;
   // Checklist
@@ -286,6 +287,62 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const moveItemToDay = async (tripId: string, itemId: string, targetDayId: string) => {
+    let targetIndex = 0;
+
+    setTrips((prev) =>
+      prev.map((trip) => {
+        if (trip.id !== tripId) return trip;
+        let itemToMove: ItineraryItem | null = null;
+        const daysWithoutItem = trip.days.map((day) => {
+          const found = day.items.find((i) => i.id === itemId);
+          if (found) {
+            itemToMove = { ...found, dayId: targetDayId };
+            return {
+              ...day,
+              items: day.items.filter((i) => i.id !== itemId),
+            };
+          }
+          return day;
+        });
+
+        if (!itemToMove) return trip;
+
+        return {
+          ...trip,
+          days: daysWithoutItem.map((day) => {
+            if (day.id === targetDayId) {
+              targetIndex = day.items.length;
+              return {
+                ...day,
+                items: [...day.items, itemToMove!],
+              };
+            }
+            return day;
+          }),
+        };
+      })
+    );
+
+    try {
+      await fetch(`/api/trips/${tripId}/items/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          moves: [
+            {
+              itemId,
+              dayId: targetDayId,
+              orderIndex: targetIndex,
+            },
+          ],
+        }),
+      });
+    } catch (err) {
+      console.warn('Backend moveItemToDay failed:', err);
+    }
+  };
+
   const addItem = async (tripId: string, dayId: string, itemData: Omit<ItineraryItem, 'id' | 'dayId'>) => {
     const tempId = `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newItem: ItineraryItem = {
@@ -420,6 +477,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           text: itemData.text,
           category: itemData.category,
           priority: itemData.priority,
+          assignedToId: itemData.assignedToId,
         }),
       });
 
@@ -480,6 +538,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           amount: expenseData.amount,
           category: expenseData.category,
           date: expenseData.date,
+          paidById: expenseData.paidById,
         }),
       });
 
@@ -593,6 +652,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         updateTrip,
         deleteTrip,
         reorderItems,
+        moveItemToDay,
         addItem,
         deleteItem,
         toggleChecklist,

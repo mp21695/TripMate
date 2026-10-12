@@ -180,7 +180,7 @@ export function MountainWireframeCanvas({ className = '' }: MountainWireframeCan
     // 5. ANIMATION LOOP (LERPED CAMERA & VERTEX DISPLACEMENT RIPPLE)
     // =========================================================================
     let animationId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);

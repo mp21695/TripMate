@@ -40,10 +40,16 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemText.trim()) return;
+
+    const chosenMember =
+      activeTrip.members.find((m) => m.name === assignedTo) ||
+      (activeTrip.members.length > 0 ? activeTrip.members[0] : undefined);
+
     addChecklist(tripId, {
       text: newItemText.trim(),
       category: newItemCategory,
-      assignedToName: assignedTo,
+      assignedToName: chosenMember?.name || assignedTo || 'Explorer',
+      assignedToId: chosenMember?.id,
       priority,
     });
     setNewItemText('');
@@ -112,7 +118,7 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
             placeholder="Add gear item (e.g. Odomos spray, Postpaid SIM, Poncho)..."
             value={newItemText}
             onChange={(e) => setNewItemText(e.target.value)}
-            className="sm:col-span-5 bg-[#14161a] border border-white/10 rounded-xs px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white"
+            className="sm:col-span-4 bg-[#14161a] border border-white/10 rounded-xs px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white"
           />
 
           <select
@@ -125,6 +131,16 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
             <option value="MEDICINES">Medicines & First Aid</option>
             <option value="ELECTRONICS">Electronics & Power</option>
             <option value="CLOTHING">Clothing & Footwear</option>
+          </select>
+
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as ChecklistItem['priority'])}
+            className="sm:col-span-2 bg-[#14161a] border border-white/10 rounded-xs px-2 py-2 text-xs text-white focus:outline-hidden focus:border-white"
+          >
+            <option value="HIGH">High Priority</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
           </select>
 
           <select
@@ -149,10 +165,9 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
 
           <button
             type="submit"
-            className="sm:col-span-2 flex items-center justify-center space-x-1 bg-white text-black hover:bg-neutral-200 font-medium px-3 py-2 rounded-xs text-xs font-sans uppercase tracking-wider transition-colors cursor-pointer"
+            className="sm:col-span-1 flex items-center justify-center space-x-1 bg-white text-black hover:bg-neutral-200 font-medium px-3 py-2 rounded-xs text-xs font-sans uppercase tracking-wider transition-colors cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Item</span>
           </button>
         </div>
       </form>
@@ -205,6 +220,18 @@ export function PackingChecklist({ tripId }: { tripId: string }) {
                     <div className="flex items-center space-x-2 mt-0.5">
                       <span className="font-mono text-[9px] text-[#8a8c8e] uppercase tracking-wider">
                         {item.category}
+                      </span>
+                      <span className="text-[10px] text-[#8a8c8e]">•</span>
+                      <span
+                        className={`font-mono text-[9px] px-1.5 py-0.2 rounded-2xs border uppercase tracking-wider ${
+                          item.priority === 'HIGH'
+                            ? 'text-rose-400 bg-rose-950/40 border-rose-800/40'
+                            : item.priority === 'MEDIUM'
+                            ? 'text-amber-400 bg-amber-950/40 border-amber-800/40'
+                            : 'text-sky-400 bg-sky-950/40 border-sky-800/40'
+                        }`}
+                      >
+                        {item.priority}
                       </span>
                       <span className="text-[10px] text-[#8a8c8e]">•</span>
                       <span className="font-mono text-[9px] text-white/80 bg-white/5 px-1.5 py-0.2 rounded-2xs border border-white/10">

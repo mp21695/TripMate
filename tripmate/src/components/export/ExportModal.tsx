@@ -27,11 +27,11 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
   const handleExportExcel = () => {
     setIsExporting(true);
     try {
-      const rows: Record<string, unknown>[] = [];
-
+      // 1. Itinerary Sheet
+      const itineraryRows: Record<string, unknown>[] = [];
       trip.days.forEach((day) => {
         day.items.forEach((item) => {
-          rows.push({
+          itineraryRows.push({
             Day: `Day ${day.dayNumber} (${day.date})`,
             Time: `${item.startTime} - ${item.endTime}`,
             Activity: item.title,
@@ -46,12 +46,8 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
           });
         });
       });
-
-      const worksheet = XLSX.utils.json_to_sheet(rows);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Itinerary Schedule');
-
-      const colWidths = [
+      const itinerarySheet = XLSX.utils.json_to_sheet(itineraryRows);
+      itinerarySheet['!cols'] = [
         { wch: 18 },
         { wch: 18 },
         { wch: 30 },
@@ -62,7 +58,61 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
         { wch: 14 },
         { wch: 32 },
       ];
-      worksheet['!cols'] = colWidths;
+
+      // 2. Checklist Sheet
+      const checklistRows = trip.checklist.map((c) => ({
+        Item: c.text,
+        Category: c.category,
+        Priority: c.priority,
+        'Assigned To': c.assignedToName,
+        Status: c.isCompleted ? 'Packed' : 'Pending',
+      }));
+      const checklistSheet = XLSX.utils.json_to_sheet(checklistRows);
+      checklistSheet['!cols'] = [
+        { wch: 30 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 20 },
+        { wch: 12 },
+      ];
+
+      // 3. Expenses Sheet
+      const totalSpent = trip.expenses.reduce((acc, curr) => acc + curr.amount, 0);
+      const expenseRows = trip.expenses.map((e) => ({
+        Title: e.title,
+        Category: e.category,
+        'Amount (INR)': e.amount,
+        'Paid By': e.paidByName,
+        Date: e.date,
+      }));
+      const expenseSheet = XLSX.utils.json_to_sheet(expenseRows);
+      expenseSheet['!cols'] = [
+        { wch: 28 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 20 },
+        { wch: 14 },
+      ];
+
+      // 4. Trip Overview Sheet
+      const overviewRows = [
+        { Parameter: 'Trip Name', Value: trip.title },
+        { Parameter: 'Destination', Value: trip.destination },
+        { Parameter: 'Region / State', Value: trip.stateOrRegion },
+        { Parameter: 'Duration', Value: `${trip.startDate} to ${trip.endDate}` },
+        { Parameter: 'Total Budget (INR)', Value: trip.totalBudget },
+        { Parameter: 'Total Expenses (INR)', Value: totalSpent },
+        { Parameter: 'Remaining Balance (INR)', Value: trip.totalBudget - totalSpent },
+        { Parameter: 'Travelers', Value: trip.members.map((m) => m.name).join(', ') },
+      ];
+      const overviewSheet = XLSX.utils.json_to_sheet(overviewRows);
+      overviewSheet['!cols'] = [{ wch: 24 }, { wch: 40 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Trip Overview');
+      XLSX.utils.book_append_sheet(workbook, itinerarySheet, 'Itinerary Schedule');
+      XLSX.utils.book_append_sheet(workbook, checklistSheet, 'Gear Checklist');
+      XLSX.utils.book_append_sheet(workbook, expenseSheet, 'Financial Ledger');
 
       XLSX.writeFile(workbook, `${trip.title.replace(/\s+/g, '_')}_Logistics_Sheet.xlsx`);
       setDownloadSuccess(true);
@@ -270,14 +320,13 @@ export function ExportModal({ trip, isOpen, onClose }: ExportModalProps) {
           <div className="space-y-4">
             <div className="bg-[#181b20] border border-white/5 rounded-xs p-5 text-xs font-mono space-y-2">
               <div className="text-white font-medium uppercase tracking-wider">
-                Spreadsheet Columns:
+                Multi-Sheet Workbook Included:
               </div>
               <ul className="space-y-1.5 text-[#8a8c8e] text-[11px] list-disc list-inside">
-                <li>Automated day-by-day rows with exact dates</li>
-                <li>Chronological start and end time columns</li>
-                <li>Active Google Maps search hyperlinks for every waypoint</li>
-                <li>₹ Currency-formatted column ready for Excel `=SUM()` formulas</li>
-                <li>Booking confirmation reference IDs</li>
+                <li><strong className="text-white">Trip Overview:</strong> Destination, dates, budget summary, and traveler roster</li>
+                <li><strong className="text-white">Itinerary Schedule:</strong> Chronological stops with Google Maps links and ₹ costs</li>
+                <li><strong className="text-white">Gear Checklist:</strong> Items, priorities, assigned team members, and status</li>
+                <li><strong className="text-white">Financial Ledger:</strong> Group expenses, payers, categories, and totals</li>
               </ul>
             </div>
 

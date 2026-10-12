@@ -96,6 +96,7 @@ export function serializeChecklist(c: ChecklistWithAssigned): ChecklistItem {
     category: categoryMapped,
     isCompleted: c.isCompleted,
     assignedToName: c.assignedTo?.name || 'Unassigned',
+    assignedToId: c.assignedToId || undefined,
     priority: c.priority,
   };
 }
@@ -108,6 +109,7 @@ export function serializeExpense(e: ExpenseWithPayer): Expense {
     category: e.category,
     paidByName: e.paidBy.name,
     paidByUpi: e.paidBy.upiId || undefined,
+    paidById: e.paidById,
     date: e.date,
   };
 }

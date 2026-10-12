@@ -23,7 +23,7 @@ import { ItineraryItem, ActivityCategory } from '@/types';
 import { Plus, Calendar, MapPin, Sparkles, X, Compass } from 'lucide-react';
 
 export function ItineraryCanvas({ tripId }: { tripId: string }) {
-  const { activeTrip, reorderItems, addItem, deleteItem } = useTrip();
+  const { activeTrip, reorderItems, moveItemToDay, addItem, deleteItem } = useTrip();
   const [activeDayIndex, setActiveDayIndex] = useState(0);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -193,6 +193,13 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
                       index={idx}
                       onDelete={(id) => currentDay && deleteItem(tripId, currentDay.id, id)}
                       onHover={(id) => setHoveredCardId(id)}
+                      availableDays={activeTrip.days.map((d) => ({
+                        id: d.id,
+                        dayNumber: d.dayNumber,
+                        title: d.title,
+                      }))}
+                      currentDayId={currentDay?.id}
+                      onMoveToDay={(targetDayId) => moveItemToDay(tripId, item.id, targetDayId)}
                     />
                   ))}
                 </div>

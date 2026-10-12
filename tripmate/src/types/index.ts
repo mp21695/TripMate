@@ -46,6 +46,7 @@ export interface ChecklistItem {
   category: 'DOCUMENTS' | 'CLOTHING' | 'MEDICINES' | 'ELECTRONICS' | 'BEACH/GEAR';
   isCompleted: boolean;
   assignedToName: string;
+  assignedToId?: string;
   priority: 'HIGH' | 'MEDIUM' | 'LOW';
 }
 
@@ -56,6 +57,7 @@ export interface Expense {
   category: 'FOOD' | 'STAY' | 'TRANSIT' | 'ACTIVITIES' | 'MISC';
   paidByName: string;
   paidByUpi?: string;
+  paidById?: string;
   date: string;
 }
 

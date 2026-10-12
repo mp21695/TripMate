@@ -23,7 +23,9 @@ export function BudgetHub({ tripId }: { tripId: string }) {
   const expenses = activeTrip.expenses;
   const totalSpent = expenses.reduce((acc, curr) => acc + curr.amount, 0);
   const totalBudget = activeTrip.totalBudget;
-  const budgetPercent = Math.min(Math.round((totalSpent / totalBudget) * 100), 100);
+  const budgetUtilization = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0;
+  const isOverBudget = totalSpent > totalBudget;
+  const deficit = totalSpent - totalBudget;
   const memberCount = Math.max(activeTrip.members.length, 1);
   const splitPerPerson = Math.round(totalSpent / memberCount);
 
@@ -38,14 +40,17 @@ export function BudgetHub({ tripId }: { tripId: string }) {
     const parsedAmount = parseFloat(expenseAmount);
     if (!expenseTitle.trim() || isNaN(parsedAmount) || parsedAmount <= 0) return;
 
-    const memberObj = activeTrip.members.find((m) => m.name === paidBy);
+    const chosenMember =
+      activeTrip.members.find((m) => m.name === paidBy) ||
+      (activeTrip.members.length > 0 ? activeTrip.members[0] : undefined);
 
     addExpense(tripId, {
       title: expenseTitle.trim(),
       amount: parsedAmount,
       category: expenseCategory,
-      paidByName: paidBy,
-      paidByUpi: memberObj?.upiId || 'tripmate@upi',
+      paidByName: chosenMember?.name || paidBy || 'Explorer',
+      paidById: chosenMember?.id,
+      paidByUpi: chosenMember?.upiId || 'tripmate@upi',
       date: new Date().toISOString().split('T')[0],
     });
 
@@ -88,6 +93,22 @@ export function BudgetHub({ tripId }: { tripId: string }) {
         </button>
       </div>
 
+      {/* Over-Budget Alert Banner */}
+      {isOverBudget && (
+        <div className="bg-rose-950/40 border border-rose-800/50 p-4 rounded-xs flex items-center justify-between text-xs font-mono text-rose-300">
+          <div className="flex items-center space-x-2.5">
+            <span className="text-base">⚠️</span>
+            <span>
+              <strong>OVER-BUDGET ALERT:</strong> Logged expenses exceed planned budget by{' '}
+              <span className="font-bold text-white">₹{deficit.toLocaleString('en-IN')}</span> ({budgetUtilization}% utilized).
+            </span>
+          </div>
+          <span className="text-[10px] uppercase tracking-wider text-rose-400 bg-rose-900/40 px-2 py-0.5 rounded-2xs border border-rose-700/50">
+            Deficit
+          </span>
+        </div>
+      )}
+
       {/* Top 3 Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {/* Total Budget */}
@@ -99,12 +120,14 @@ export function BudgetHub({ tripId }: { tripId: string }) {
           <div className="mt-3">
             <div className="flex justify-between text-[11px] font-mono text-[#8a8c8e] mb-1">
               <span>UTILIZATION</span>
-              <span className="text-white font-medium">{budgetPercent}%</span>
+              <span className={`font-medium ${isOverBudget ? 'text-rose-400' : 'text-white'}`}>
+                {budgetUtilization}%
+              </span>
             </div>
             <div className="w-full bg-white/10 h-1 rounded-full overflow-hidden">
               <div
-                className="bg-white h-full transition-all duration-500"
-                style={{ width: `${budgetPercent}%` }}
+                className={`h-full transition-all duration-500 ${isOverBudget ? 'bg-rose-500' : 'bg-white'}`}
+                style={{ width: `${Math.min(budgetUtilization, 100)}%` }}
               />
             </div>
           </div>
@@ -117,7 +140,11 @@ export function BudgetHub({ tripId }: { tripId: string }) {
             ₹{totalSpent.toLocaleString('en-IN')}
           </div>
           <p className="text-[11px] font-mono text-[#8a8c8e] mt-3">
-            Remaining: <span className="text-white font-medium">₹{(totalBudget - totalSpent).toLocaleString('en-IN')}</span>
+            {isOverBudget ? (
+              <span className="text-rose-400 font-medium">Deficit: -₹{deficit.toLocaleString('en-IN')}</span>
+            ) : (
+              <>Remaining: <span className="text-white font-medium">₹{(totalBudget - totalSpent).toLocaleString('en-IN')}</span></>
+            )}
           </p>
         </div>
 

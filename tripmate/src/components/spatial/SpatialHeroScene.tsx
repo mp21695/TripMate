@@ -232,7 +232,7 @@ export function SpatialHeroScene({ className = '' }: SpatialHeroSceneProps) {
 
     // 8. Animation Loop
     let animationFrameId: number;
-    let clock = new THREE.Clock();
+    const clock = new THREE.Clock();
 
     const animate = () => {
       const delta = clock.getDelta();

@@ -17,6 +17,9 @@ interface WeatherData {
   temp: number;
   condition: string;
   icon: string;
+  windSpeed?: number;
+  tempMax?: number;
+  tempMin?: number;
 }
 
 function getWeatherDescription(code: number): { condition: string; icon: string } {
@@ -66,16 +69,32 @@ export function WeatherWidget({ lat, lng, initialSummary, className = '' }: Weat
     async function fetchWeather() {
       try {
         const res = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true`
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=auto`
         );
         if (res.ok) {
           const data = await res.json();
           if (data?.current_weather && !isCancelled) {
             const desc = getWeatherDescription(data.current_weather.weathercode);
+            const tempMax =
+              data.daily?.temperature_2m_max?.[0] !== undefined
+                ? Math.round(data.daily.temperature_2m_max[0])
+                : undefined;
+            const tempMin =
+              data.daily?.temperature_2m_min?.[0] !== undefined
+                ? Math.round(data.daily.temperature_2m_min[0])
+                : undefined;
+            const windSpeed =
+              data.current_weather?.windspeed !== undefined
+                ? Math.round(data.current_weather.windspeed)
+                : undefined;
+
             setWeather({
               temp: Math.round(data.current_weather.temperature),
               condition: desc.condition,
               icon: desc.icon,
+              tempMax,
+              tempMin,
+              windSpeed,
             });
           }
         }
@@ -113,6 +132,22 @@ export function WeatherWidget({ lat, lng, initialSummary, className = '' }: Weat
       <span>{weather.temp}°C</span>
       <span className="text-white/40">•</span>
       <span className="text-white/80">{weather.condition}</span>
+      {weather.tempMax !== undefined && weather.tempMin !== undefined && (
+        <>
+          <span className="text-white/40 hidden sm:inline">•</span>
+          <span className="text-[#8a8c8e] hidden sm:inline">
+            H: {weather.tempMax}° L: {weather.tempMin}°
+          </span>
+        </>
+      )}
+      {weather.windSpeed !== undefined && (
+        <>
+          <span className="text-white/40 hidden md:inline">•</span>
+          <span className="text-[#8a8c8e] hidden md:inline">
+            💨 {weather.windSpeed} km/h
+          </span>
+        </>
+      )}
     </div>
   );
 }
