@@ -41,96 +41,87 @@ export function getGeoDistanceMeters(
 }
 
 /**
- * Computes deterministic pixel offset for a stop within a collision cluster.
- * 
- * Rules:
- * - 1 stop: no offset (dx = 0, dy = 0)
- * - 2 stops: opposite directions (left & right)
- * - 3 stops: equilateral triangle around center (top, bottom-right, bottom-left)
- * - 4+ stops: radial / circular pattern around center
+ * Threshold in meters under which two stops are considered geographically overlapping/colliding.
+ * Typical city venues across the street are > 50m apart, while duplicate or same-resort
+ * stops are <= 35m apart.
  */
-export function computeSpiderfyOffsetPixels(
-  clusterSize: number,
-  indexInCluster: number
-): { dx: number; dy: number } {
-  if (clusterSize <= 1) {
-    return { dx: 0, dy: 0 };
-  }
-
-  if (clusterSize === 2) {
-    // 2 stops: offset horizontally in opposite directions by 32px
-    const radius = 32;
-    return indexInCluster === 0
-      ? { dx: -radius, dy: 0 }
-      : { dx: radius, dy: 0 };
-  }
-
-  if (clusterSize === 3) {
-    // 3 stops: equilateral triangle around center
-    // Stop 0: Top (-90 deg)
-    // Stop 1: Bottom Right (30 deg)
-    // Stop 2: Bottom Left (150 deg)
-    const radius = 34;
-    if (indexInCluster === 0) {
-      return { dx: 0, dy: -radius };
-    }
-    if (indexInCluster === 1) {
-      const angle = Math.PI / 6; // 30 deg
-      return {
-        dx: Math.round(radius * Math.cos(angle)),
-        dy: Math.round(radius * Math.sin(angle)),
-      };
-    }
-    return {
-      dx: -Math.round(radius * Math.cos(Math.PI / 6)),
-      dy: Math.round(radius * Math.sin(Math.PI / 6)),
-    };
-  }
-
-  // 4+ stops: radial circular pattern
-  const radius = Math.min(54, 36 + (clusterSize - 4) * 4);
-  const angle = -Math.PI / 2 + (indexInCluster * 2 * Math.PI) / clusterSize;
-  return {
-    dx: Math.round(radius * Math.cos(angle)),
-    dy: Math.round(radius * Math.sin(angle)),
-  };
-}
-
-export const MAX_GEO_COLLISION_METERS = 50; // max geographic distance to consider nearby places
-export const PIXEL_COLLISION_THRESHOLD = 32; // pixel overlap threshold on screen
+export const COLLISION_GEO_THRESHOLD_METERS = 35;
 
 /**
- * Determines whether two stops collide geographically or visually on the map canvas.
+ * Checks whether two stops collide geographically.
  */
 export function areItemsColliding(
   a: { lat: number; lng: number },
-  b: { lat: number; lng: number },
-  latLngToLayerPoint: (ll: [number, number]) => { x: number; y: number }
+  b: { lat: number; lng: number }
 ): boolean {
   const geoDist = getGeoDistanceMeters(a.lat, a.lng, b.lat, b.lng);
+  return geoDist <= COLLISION_GEO_THRESHOLD_METERS;
+}
 
-  // Exact identical coordinates (distance < 1 meter) always collide
-  if (geoDist < 1.0) return true;
+/**
+ * Computes deterministic geographic offset (lat, lng) for a stop within a collision cluster.
+ * 
+ * Rules:
+ * - 1 stop: no offset (stays at true position)
+ * - 2 stops: offset horizontally in opposite directions (East & West)
+ * - 3 stops: equilateral triangle around center (North, South-East, South-West)
+ * - 4+ stops: radial circular pattern around center
+ */
+export function computeSpiderfyOffsetLatLng(
+  anchorLat: number,
+  anchorLng: number,
+  clusterSize: number,
+  indexInCluster: number
+): [number, number] {
+  if (clusterSize <= 1) {
+    return [anchorLat, anchorLng];
+  }
 
-  // Stops further than MAX_GEO_COLLISION_METERS are separate venues across town and never collide
-  if (geoDist > MAX_GEO_COLLISION_METERS) return false;
+  let distanceMeters = 24;
+  let angleRad = 0;
 
-  // Stops within 50m: check whether their pixel projection on screen causes visual overlap
-  const pA = latLngToLayerPoint([a.lat, a.lng]);
-  const pB = latLngToLayerPoint([b.lat, b.lng]);
-  const pixelDist = Math.hypot(pA.x - pB.x, pA.y - pB.y);
-  return pixelDist < PIXEL_COLLISION_THRESHOLD;
+  if (clusterSize === 2) {
+    // 2 stops: offset horizontally in opposite directions by 26 meters
+    distanceMeters = 26;
+    angleRad = indexInCluster === 0 ? Math.PI : 0; // West (180 deg) and East (0 deg)
+  } else if (clusterSize === 3) {
+    // 3 stops: equilateral triangle around center
+    distanceMeters = 28;
+    if (indexInCluster === 0) {
+      angleRad = Math.PI / 2; // North (90 deg)
+    } else if (indexInCluster === 1) {
+      angleRad = -Math.PI / 6; // South-East (-30 deg)
+    } else {
+      angleRad = (-5 * Math.PI) / 6; // South-West (-150 deg)
+    }
+  } else {
+    // 4+ stops: radial circular pattern
+    distanceMeters = Math.min(42, 28 + (clusterSize - 4) * 3);
+    angleRad = Math.PI / 2 - (indexInCluster * 2 * Math.PI) / clusterSize;
+  }
+
+  // Convert distance in meters to deltaLat and deltaLng in degrees
+  // 1 degree latitude ~ 111,139 meters
+  // 1 degree longitude ~ 111,139 * cos(lat) meters
+  const latRad = (anchorLat * Math.PI) / 180;
+  const metersPerDegLat = 111139;
+  const metersPerDegLng = 111139 * Math.max(0.2, Math.cos(latRad));
+
+  const deltaNorth = distanceMeters * Math.sin(angleRad);
+  const deltaEast = distanceMeters * Math.cos(angleRad);
+
+  const offsetLat = anchorLat + deltaNorth / metersPerDegLat;
+  const offsetLng = anchorLng + deltaEast / metersPerDegLng;
+
+  return [offsetLat, offsetLng];
 }
 
 /**
  * Groups valid itinerary stops into collision clusters and computes deterministic visual offsets.
+ * Pure function independent of Leaflet map lifecycle or pixel origin.
  * Preserves exact itinerary ordering and original coordinates.
  */
-export function clusterItineraryItems(
-  items: ItineraryItem[],
-  latLngToLayerPoint: (ll: [number, number]) => { x: number; y: number },
-  layerPointToLatLng: (p: { x: number; y: number }) => [number, number]
-): CollisionCluster[] {
+export function clusterItineraryItems(items: ItineraryItem[]): CollisionCluster[] {
   const valid = items
     .map((item, orderIndex) => ({ item, orderIndex }))
     .filter(({ item }) => hasValidCoordinates(item));
@@ -155,7 +146,7 @@ export function clusterItineraryItems(
       for (let j = 0; j < valid.length; j++) {
         if (!visited.has(j)) {
           const target = valid[j];
-          if (areItemsColliding(curr.item, target.item, latLngToLayerPoint)) {
+          if (areItemsColliding(curr.item, target.item)) {
             visited.add(j);
             clusterIndices.push(j);
             queue.push(j);
@@ -175,7 +166,6 @@ export function clusterItineraryItems(
       clusterIndices.reduce((sum, idx) => sum + valid[idx].item.lng, 0) /
       clusterIndices.length;
 
-    const anchorPixel = latLngToLayerPoint([anchorLat, anchorLng]);
     const clusterSize = clusterIndices.length;
 
     const spiderfiedItems: SpiderfiedItem[] = clusterIndices.map((idx, clusterIndex) => {
@@ -194,10 +184,13 @@ export function clusterItineraryItems(
         };
       }
 
-      // Compute visual offset in pixels
-      const { dx, dy } = computeSpiderfyOffsetPixels(clusterSize, clusterIndex);
-      const visualPixel = { x: anchorPixel.x + dx, y: anchorPixel.y + dy };
-      const visualPos = layerPointToLatLng(visualPixel);
+      // Compute deterministic geographic offset
+      const visualPos = computeSpiderfyOffsetLatLng(
+        anchorLat,
+        anchorLng,
+        clusterSize,
+        clusterIndex
+      );
 
       return {
         item,

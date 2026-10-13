@@ -49,15 +49,8 @@ export function LeafletRouteMap({
     const validItems = items.filter(hasValidCoordinates);
     if (validItems.length === 0) return;
 
-    // Cluster items using the deterministic spiderfy algorithm
-    const clusters = clusterItineraryItems(
-      validItems,
-      (ll) => map.latLngToLayerPoint(ll),
-      (p) => {
-        const ll = map.layerPointToLatLng(L.point(p.x, p.y));
-        return [ll.lat, ll.lng];
-      }
-    );
+    // Cluster items using pure deterministic geographic spiderfy algorithm
+    const clusters = clusterItineraryItems(validItems);
 
     clusters.forEach((cluster) => {
       // If this cluster has multiple colliding stops, render subtle true position anchor dot
@@ -156,11 +149,13 @@ export function LeafletRouteMap({
     });
   }, [items, onSelectPin]);
 
-  // 1. Initialize Leaflet Map Instance
+  // 1. Initialize Leaflet Map Instance with guaranteed valid center & zoom
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
+      center: [15.2993, 74.1240], // Safe initial center (Goa / India)
+      zoom: 7,
       zoomControl: false,
       attributionControl: true,
       fadeAnimation: true,
@@ -211,22 +206,7 @@ export function LeafletRouteMap({
     };
   }, []);
 
-  // 2. Listen for zoom events to recalculate spiderfy offsets at new scale
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const handleZoom = () => {
-      renderMarkersAndSpiderfy();
-    };
-
-    map.on('zoomend', handleZoom);
-    return () => {
-      map.off('zoomend', handleZoom);
-    };
-  }, [renderMarkersAndSpiderfy]);
-
-  // 3. Update Routes (using REAL coordinates), Markers (spiderfied), and Bounds when items change
+  // 2. Update Routes (using REAL coordinates), Markers (spiderfied), and Bounds when items change
   useEffect(() => {
     const map = mapRef.current;
     const routesLayer = routesLayerGroupRef.current;
@@ -238,8 +218,8 @@ export function LeafletRouteMap({
     if (validItems.length === 0) {
       spiderfyLayerGroupRef.current?.clearLayers();
       markersMapRef.current.clear();
-      // Default viewpoint fallback (India center)
-      map.setView([20.5937, 78.9629], 5);
+      // Safe fallback center (Goa)
+      map.setView([15.2993, 74.1240], 7);
       return;
     }
 
@@ -248,6 +228,17 @@ export function LeafletRouteMap({
       item.lat,
       item.lng,
     ]);
+
+    // Set view or fitBounds FIRST before drawing overlays
+    if (trueLatLngs.length > 1) {
+      map.fitBounds(L.latLngBounds(trueLatLngs), {
+        padding: [50, 50],
+        maxZoom: 14,
+        animate: false,
+      });
+    } else if (trueLatLngs.length === 1) {
+      map.setView(trueLatLngs[0], 13);
+    }
 
     if (trueLatLngs.length > 1) {
       // Outer ambient glow polyline
@@ -268,17 +259,6 @@ export function LeafletRouteMap({
 
     // Render markers with visual spiderfy offsets and connector lines
     renderMarkersAndSpiderfy();
-
-    // Fit map bounds to true waypoints
-    if (trueLatLngs.length > 1) {
-      map.fitBounds(L.latLngBounds(trueLatLngs), {
-        padding: [50, 50],
-        maxZoom: 14,
-        animate: true,
-      });
-    } else if (trueLatLngs.length === 1) {
-      map.setView(trueLatLngs[0], 13);
-    }
   }, [items, renderMarkersAndSpiderfy]);
 
   // 3. Highlight/Open Popup when activeItemId changes externally without resetting map bounds
