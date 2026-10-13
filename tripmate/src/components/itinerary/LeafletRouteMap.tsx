@@ -22,6 +22,9 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+const CARTO_API_KEY =
+  process.env.NEXT_PUBLIC_CARTO_API_KEY || 'cb1_4iqv_1_af53373c7c117ed354383153';
+
 export function LeafletRouteMap({
   items,
   activeItemId,
@@ -50,16 +53,17 @@ export function LeafletRouteMap({
       })
       .addTo(map);
 
-    // CartoDB Dark Matter tile layer
-    L.tileLayer(
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      }
-    ).addTo(map);
+    // CartoDB Dark Matter tile layer authenticated with CARTO API key
+    const cartoTileUrl = CARTO_API_KEY
+      ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_API_KEY}`
+      : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+    L.tileLayer(cartoTileUrl, {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
 
     // Create layer group for dynamic markers and route polylines
     const layerGroup = L.layerGroup().addTo(map);
