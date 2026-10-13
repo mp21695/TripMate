@@ -1,8 +1,24 @@
 'use client';
 
 import React, { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { ItineraryItem } from '@/types';
-import { Compass, ExternalLink } from 'lucide-react';
+import { Compass, ExternalLink, Loader2 } from 'lucide-react';
+import { buildGoogleMapsDayRouteUrl, hasValidCoordinates } from '@/lib/maps/googleMapsRoute';
+
+// Dynamically import LeafletRouteMap with SSR disabled to prevent window is not defined
+const LeafletRouteMap = dynamic(
+  () => import('./LeafletRouteMap').then((mod) => mod.LeafletRouteMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full min-h-[460px] flex flex-col items-center justify-center bg-[#0c0e11] text-[#8a8c8e] font-mono text-xs space-y-2">
+        <Loader2 className="w-5 h-5 animate-spin text-[#ffb000]" />
+        <span>Initializing interactive route map...</span>
+      </div>
+    ),
+  }
+);
 
 interface InteractiveMapProps {
   items: ItineraryItem[];
@@ -17,188 +33,71 @@ export function InteractiveMap({
   activeItemId,
   onSelectPin,
 }: InteractiveMapProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Filter only items with valid finite numbers for latitude and longitude
-  const validItems = items.filter(
-    (i) => typeof i.lat === 'number' && typeof i.lng === 'number' && Number.isFinite(i.lat) && Number.isFinite(i.lng)
-  );
+  const validItems = items.filter(hasValidCoordinates);
+  const dayRoute = buildGoogleMapsDayRouteUrl(items);
 
-  const lats = validItems.map((i) => i.lat);
-  const lngs = validItems.map((i) => i.lng);
-
-  const minLat = lats.length ? Math.min(...lats) - 0.05 : 15.0;
-  const maxLat = lats.length ? Math.max(...lats) + 0.05 : 15.8;
-  const minLng = lngs.length ? Math.min(...lngs) - 0.05 : 73.6;
-  const maxLng = lngs.length ? Math.max(...lngs) + 0.05 : 74.2;
-
-  const centerLat = Number(((minLat + maxLat) / 2).toFixed(4));
-  const centerLng = Number(((minLng + maxLng) / 2).toFixed(4));
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-  const mapboxImageUrl = mapboxToken
-    ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${centerLng},${centerLat},11,0/900x700@2x?access_token=${mapboxToken}`
-    : null;
-
-  const getCoordinatesPercent = (lat: number, lng: number) => {
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return { x: 50, y: 50 };
+  const handleOpenGoogleMaps = () => {
+    if (!dayRoute.url) {
+      setToastMessage(dayRoute.message || 'No valid coordinates found for this day.');
+      setTimeout(() => setToastMessage(null), 3500);
+      return;
     }
-    const latSpan = maxLat - minLat || 0.1;
-    const lngSpan = maxLng - minLng || 0.1;
-    const y = 84 - ((lat - minLat) / latSpan) * 68;
-    const x = 16 + ((lng - minLng) / lngSpan) * 68;
-    return { x: Math.max(12, Math.min(88, x)), y: Math.max(16, Math.min(84, y)) };
+    window.open(dayRoute.url, '_blank', 'noopener,noreferrer');
   };
 
-  const currentHover = hoveredId || activeItemId;
-
   return (
-    <div className="relative w-full h-[520px] lg:h-[660px] rounded-xs overflow-hidden border border-white/10 bg-[#0c0e11] shadow-2xl flex flex-col">
-      {/* Top Map HUD */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-none">
-        <div className="bg-black/70 backdrop-blur-md border border-white/10 px-3.5 py-1.5 rounded-full flex items-center space-x-2 shadow-xl pointer-events-auto">
-          <span className="w-1.5 h-1.5 rounded-full bg-white/70 animate-pulse" />
+    <div className="relative w-full h-[520px] lg:h-[660px] rounded-xs overflow-hidden border border-white/10 bg-[#0c0e11] shadow-2xl flex flex-col group">
+      {/* Top Map HUD Overlay - pointer-events-none on container, pointer-events-auto on interactive pills */}
+      <div className="absolute top-4 left-4 right-4 z-[400] flex items-center justify-between pointer-events-none">
+        <div className="bg-[#14161a]/90 backdrop-blur-md border border-white/10 px-3.5 py-1.5 rounded-full flex items-center space-x-2 shadow-xl pointer-events-auto">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#ffb000] animate-pulse" />
           <span className="font-mono text-[10px] text-white font-medium tracking-widest uppercase">
             {destinationName} • ROUTE MAP
           </span>
           <span className="text-[9px] font-mono text-white/60 border border-white/10 px-1.5 py-0.5 rounded-full">
             {validItems.length} STOPS
           </span>
-          {mapboxToken && (
-            <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/30 px-1.5 py-0.5 rounded-full">
-              MAPBOX
-            </span>
-          )}
+          <span className="text-[8px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/30 px-1.5 py-0.5 rounded-full hidden sm:inline-block">
+            LEAFLET PAN & ZOOM
+          </span>
         </div>
       </div>
 
-      {/* SVG Vector Map Rendering Canvas */}
-      <div className="relative flex-1 w-full h-full bg-[#0c0e11] overflow-hidden select-none">
-        {/* Mapbox Imagery or Subtle dot matrix grid */}
-        {mapboxImageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={mapboxImageUrl}
-            alt="Mapbox Dark Route Canvas"
-            className="absolute inset-0 w-full h-full object-cover opacity-50 filter brightness-90 contrast-125"
-          />
-        ) : (
-          <div className="absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:24px_24px] opacity-70" />
-        )}
+      {/* Floating Toast Notification for Day Map feedback */}
+      {toastMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[500] bg-neutral-900/95 border border-[#ffb000]/40 text-[#ffb000] px-4 py-2 rounded-xs font-mono text-xs shadow-2xl animate-in fade-in slide-in-from-top-2 pointer-events-none">
+          {toastMessage}
+        </div>
+      )}
 
-        {/* Route Lines SVG */}
-        <svg
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className="absolute inset-0 w-full h-full pointer-events-none"
-        >
-          <defs>
-            <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#9a9a98" stopOpacity="0.4" />
-            </linearGradient>
-          </defs>
-
-          {/* Polyline Path */}
-          {validItems.length > 1 && (
-            <path
-              d={validItems
-                .map((item, index) => {
-                  const { x, y } = getCoordinatesPercent(item.lat, item.lng);
-                  return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-                })
-                .join(' ')}
-              fill="none"
-              stroke="url(#routeGradient)"
-              strokeWidth="1.5"
-              vectorEffect="non-scaling-stroke"
-              strokeDasharray="4 2"
-              className="opacity-90"
-            />
-          )}
-        </svg>
-
-        {/* Waypoint Markers */}
-        {validItems.map((item, index) => {
-          const { x, y } = getCoordinatesPercent(item.lat, item.lng);
-          const isSelected = currentHover === item.id;
-
-          return (
-            <div
-              key={item.id}
-              style={{ left: `${x}%`, top: `${y}%` }}
-              className="absolute -translate-x-1/2 -translate-y-1/2 z-30 transition-transform duration-300"
-              onMouseEnter={() => setHoveredId(item.id)}
-              onMouseLeave={() => setHoveredId(null)}
-              onClick={() => onSelectPin?.(item.id)}
-            >
-              {/* Waypoint Circle */}
-              <div
-                className={`relative flex items-center justify-center cursor-pointer transition-all ${
-                  isSelected ? 'scale-125 z-40' : 'hover:scale-115'
-                }`}
-              >
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold shadow-2xl transition-colors ${
-                    isSelected
-                      ? 'bg-white text-black ring-4 ring-white/30'
-                      : item.coordsVerified === false
-                      ? 'bg-[#181b20] text-amber-400 border border-amber-500/60 ring-2 ring-amber-500/20'
-                      : 'bg-[#181b20] text-white border border-white/40 hover:border-white'
-                  }`}
-                >
-                  {index + 1}
-                </div>
-              </div>
-
-              {/* Waypoint Tooltip */}
-              {isSelected && (
-                <div className="absolute left-1/2 -translate-x-1/2 bottom-10 w-52 bg-[#14161a]/95 backdrop-blur-md border border-white/20 p-3 rounded-xs shadow-2xl pointer-events-none z-50 animate-in fade-in zoom-in-95 duration-200">
-                  <div className="text-[9px] font-mono text-white/60 uppercase tracking-widest flex justify-between">
-                    <span>STOP #{index + 1}</span>
-                    <span>{item.startTime}</span>
-                  </div>
-                  <h5 className="font-serif font-normal text-sm text-white truncate mt-1">
-                    {item.title}
-                  </h5>
-                  <p className="text-[10px] text-[#8a8c8e] truncate mt-0.5 font-mono">
-                    {item.locationName}
-                  </p>
-                  {item.coordsVerified === false && (
-                    <div className="mt-1 text-[9px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/30 px-1 py-0.5 rounded-2xs">
-                      ⚠️ Approximate location
-                    </div>
-                  )}
-                  <div className="mt-2 flex items-center justify-between text-[9px] font-mono text-[#8a8c8e] pt-1.5 border-t border-white/10">
-                    <span>EST: ₹{item.estimatedCost.toLocaleString('en-IN')}</span>
-                    <span className="text-white flex items-center">
-                      MAPS <ExternalLink className="w-2.5 h-2.5 ml-1" />
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+      {/* Leaflet Interactive Canvas */}
+      <div className="relative flex-1 w-full h-full bg-[#0c0e11] overflow-hidden">
+        <LeafletRouteMap
+          items={items}
+          destinationName={destinationName}
+          activeItemId={activeItemId}
+          onSelectPin={onSelectPin}
+        />
       </div>
 
       {/* Bottom Map Status Bar */}
-      <div className="p-3 bg-[#14161a] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-[#8a8c8e]">
+      <div className="p-3 bg-[#14161a] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-[#8a8c8e] z-[400]">
         <div className="flex items-center space-x-2">
-          <Compass className="w-3 h-3 text-white/70" />
-          <span>SYNCHRONIZED ROUTE • HOVER STOP TO HIGHLIGHT PIN</span>
+          <Compass className="w-3.5 h-3.5 text-[#ffb000]" />
+          <span className="hidden sm:inline">SYNCHRONIZED ROUTE • DRAG TO PAN • WHEEL TO ZOOM</span>
+          <span className="sm:hidden">PAN & ZOOM ROUTE</span>
         </div>
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-            destinationName
-          )}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-white hover:text-white/80 flex items-center space-x-1"
+
+        <button
+          onClick={handleOpenGoogleMaps}
+          className="text-white hover:text-[#ffb000] flex items-center space-x-1.5 font-medium transition-colors cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1 rounded-full text-[10px] tracking-wider uppercase"
+          title={dayRoute.url ? 'Open full day route in Google Maps' : (dayRoute.message || 'No valid stops to route')}
         >
-          <span>OPEN IN MAPS</span>
-          <ExternalLink className="w-2.5 h-2.5" />
-        </a>
+          <span>OPEN DAY IN GOOGLE MAPS</span>
+          <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+        </button>
       </div>
     </div>
   );

@@ -20,10 +20,20 @@ import { ActivityCard } from './ActivityCard';
 import { InteractiveMap } from './InteractiveMap';
 import { PlaceDiscoveryDrawer } from './PlaceDiscoveryDrawer';
 import { ActivityCategory } from '@/types';
-import { Plus, Calendar, MapPin, Compass } from 'lucide-react';
+import { Plus, Calendar, MapPin, Compass, ExternalLink, Clock, Navigation, Loader2 } from 'lucide-react';
+import { buildGoogleMapsDayRouteUrl } from '@/lib/maps/googleMapsRoute';
 
 export function ItineraryCanvas({ tripId }: { tripId: string }) {
-  const { trips, activeTrip, reorderItems, moveItemToDay, addItem, deleteItem } = useTrip();
+  const {
+    trips,
+    activeTrip,
+    reorderItems,
+    moveItemToDay,
+    addItem,
+    deleteItem,
+    sortDayChronologically,
+    recalculateTransit,
+  } = useTrip();
   const currentTrip =
     trips.find((t) => t.id === tripId) ||
     (activeTrip?.id === tripId ? activeTrip : null) ||
@@ -33,6 +43,39 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPlacesDrawer, setShowPlacesDrawer] = useState(false);
+  const [dayToast, setDayToast] = useState<string | null>(null);
+  const [transitRecalculating, setTransitRecalculating] = useState(false);
+
+  const handleOpenDayInMaps = () => {
+    const route = buildGoogleMapsDayRouteUrl(items);
+    if (!route.url) {
+      setDayToast(route.message || 'No valid coordinates found for this day.');
+      setTimeout(() => setDayToast(null), 3500);
+      return;
+    }
+    window.open(route.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSortByTime = async () => {
+    if (!currentTrip || !currentDay) return;
+    await sortDayChronologically(currentTrip.id, currentDay.id);
+    setDayToast('Schedule sorted chronologically by start time');
+    setTimeout(() => setDayToast(null), 3000);
+  };
+
+  const handleRecalculateTransit = async () => {
+    if (!currentTrip || !currentDay) return;
+    setTransitRecalculating(true);
+    try {
+      await recalculateTransit(currentTrip.id, currentDay.id);
+      setDayToast('Transit times & distances recalculated');
+    } catch {
+      setDayToast('Failed to recalculate transit');
+    } finally {
+      setTransitRecalculating(false);
+      setTimeout(() => setDayToast(null), 3000);
+    }
+  };
 
   // Form states for adding an activity
   const [title, setTitle] = useState('');
@@ -140,7 +183,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column: Day Itinerary Items */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-white/10 gap-3">
             <div>
               <h3 className="font-serif text-2xl sm:text-3xl text-white font-normal">
                 {currentDay ? currentDay.title : 'Day Schedule'}
@@ -150,10 +193,42 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
               </p>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center flex-wrap gap-2">
+              <button
+                onClick={handleOpenDayInMaps}
+                title="Open full day route in Google Maps"
+                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-[#ffb000] hover:text-amber-300 border border-[#ffb000]/30 font-sans font-medium px-3 py-1.5 rounded-full text-[11px] tracking-wider uppercase transition-colors cursor-pointer"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>OPEN DAY IN MAPS</span>
+              </button>
+
+              <button
+                onClick={handleSortByTime}
+                title="Sort items chronologically by user start time"
+                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-white/80 hover:text-white border border-white/10 font-sans font-medium px-3 py-1.5 rounded-full text-[11px] tracking-wider uppercase transition-colors cursor-pointer"
+              >
+                <Clock className="w-3 h-3 text-white/60" />
+                <span>SORT BY TIME</span>
+              </button>
+
+              <button
+                onClick={handleRecalculateTransit}
+                disabled={transitRecalculating}
+                title="Recalculate transit durations and distances between consecutive stops"
+                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-white/80 hover:text-white border border-white/10 font-sans font-medium px-3 py-1.5 rounded-full text-[11px] tracking-wider uppercase transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {transitRecalculating ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-[#ffb000]" />
+                ) : (
+                  <Navigation className="w-3 h-3 text-white/60" />
+                )}
+                <span>RECALC TRANSIT</span>
+              </button>
+
               <button
                 onClick={() => setShowPlacesDrawer(true)}
-                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-white border border-white/10 font-sans font-medium px-3.5 py-2 rounded-full text-xs tracking-wider uppercase transition-colors cursor-pointer"
+                className="inline-flex items-center space-x-1.5 bg-[#181b20] hover:bg-neutral-800 text-white border border-white/10 font-sans font-medium px-3 py-1.5 rounded-full text-[11px] tracking-wider uppercase transition-colors cursor-pointer"
               >
                 <MapPin className="w-3.5 h-3.5 text-white/70" />
                 <span>EXPLORE PLACES</span>
@@ -161,13 +236,26 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
 
               <button
                 onClick={() => setShowAddModal(true)}
-                className="inline-flex items-center space-x-1.5 bg-white text-black hover:bg-neutral-200 font-sans font-medium px-4 py-2 rounded-full text-xs tracking-wider uppercase transition-colors cursor-pointer"
+                className="inline-flex items-center space-x-1.5 bg-white text-black hover:bg-neutral-200 font-sans font-medium px-3.5 py-1.5 rounded-full text-[11px] tracking-wider uppercase transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>ADD STOP</span>
               </button>
             </div>
           </div>
+
+          {/* Feedback Toast */}
+          {dayToast && (
+            <div className="bg-[#181b20] border border-[#ffb000]/40 text-[#ffb000] text-xs font-mono px-3.5 py-2 rounded-xs flex items-center justify-between shadow-lg">
+              <span>{dayToast}</span>
+              <button
+                onClick={() => setDayToast(null)}
+                className="text-[#8a8c8e] hover:text-white ml-2 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Dnd Sortable Context */}
           {items.length === 0 ? (

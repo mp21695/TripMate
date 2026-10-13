@@ -21,6 +21,8 @@ interface TripContextType {
   moveItemToDay: (tripId: string, itemId: string, targetDayId: string) => Promise<void>;
   addItem: (tripId: string, dayId: string, item: Omit<ItineraryItem, 'id' | 'dayId'>) => Promise<ItineraryItem>;
   deleteItem: (tripId: string, dayId: string, itemId: string) => Promise<void>;
+  sortDayChronologically: (tripId: string, dayId: string) => Promise<void>;
+  recalculateTransit: (tripId: string, dayId: string) => Promise<void>;
   // Checklist
   toggleChecklist: (tripId: string, itemId: string) => Promise<void>;
   addChecklist: (tripId: string, item: Omit<ChecklistItem, 'id' | 'isCompleted'>) => Promise<void>;
@@ -249,7 +251,17 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   };
 
   const reorderItems = async (tripId: string, dayId: string, activeId: string, overId: string) => {
-    let reorderedDayItems: ItineraryItem[] = [];
+    const targetTrip = trips.find((t) => t.id === tripId);
+    const targetDay = targetTrip?.days.find((d) => d.id === dayId);
+    if (!targetDay) return;
+
+    const items = [...targetDay.items];
+    const oldIndex = items.findIndex((i) => i.id === activeId);
+    const newIndex = items.findIndex((i) => i.id === overId);
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+    const [movedItem] = items.splice(oldIndex, 1);
+    items.splice(newIndex, 0, movedItem);
 
     setTrips((prev) =>
       prev.map((trip) => {
@@ -258,67 +270,58 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           ...trip,
           days: trip.days.map((day) => {
             if (day.id !== dayId) return day;
-            const items = [...day.items];
-            const oldIndex = items.findIndex((i) => i.id === activeId);
-            const newIndex = items.findIndex((i) => i.id === overId);
-            if (oldIndex === -1 || newIndex === -1) return day;
-            const [movedItem] = items.splice(oldIndex, 1);
-            items.splice(newIndex, 0, movedItem);
-            reorderedDayItems = items;
             return { ...day, items };
           }),
         };
       })
     );
 
-    if (reorderedDayItems.length > 0) {
-      try {
-        const moves = reorderedDayItems.map((item, index) => ({
-          itemId: item.id,
-          dayId,
-          orderIndex: index,
-        }));
-        await fetch(`/api/trips/${tripId}/items/reorder`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ moves }),
-        });
-      } catch (err) {
-        console.warn('Backend reorderItems failed:', err);
-      }
+    try {
+      const moves = items.map((item, index) => ({
+        itemId: item.id,
+        dayId,
+        orderIndex: index,
+      }));
+      await fetch(`/api/trips/${tripId}/items/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves }),
+      });
+    } catch (err) {
+      console.warn('Backend reorderItems failed:', err);
     }
   };
 
   const moveItemToDay = async (tripId: string, itemId: string, targetDayId: string) => {
-    let targetIndex = 0;
+    const targetTrip = trips.find((t) => t.id === tripId);
+    if (!targetTrip) return;
+
+    let itemToMove: ItineraryItem | null = null;
+    let sourceDayId = '';
+    for (const day of targetTrip.days) {
+      const found = day.items.find((i) => i.id === itemId);
+      if (found) {
+        itemToMove = { ...found, dayId: targetDayId };
+        sourceDayId = day.id;
+        break;
+      }
+    }
+    if (!itemToMove || sourceDayId === targetDayId) return;
+
+    const targetDay = targetTrip.days.find((d) => d.id === targetDayId);
+    const targetIndex = targetDay ? targetDay.items.length : 0;
 
     setTrips((prev) =>
       prev.map((trip) => {
         if (trip.id !== tripId) return trip;
-        let itemToMove: ItineraryItem | null = null;
-        const daysWithoutItem = trip.days.map((day) => {
-          const found = day.items.find((i) => i.id === itemId);
-          if (found) {
-            itemToMove = { ...found, dayId: targetDayId };
-            return {
-              ...day,
-              items: day.items.filter((i) => i.id !== itemId),
-            };
-          }
-          return day;
-        });
-
-        if (!itemToMove) return trip;
-
         return {
           ...trip,
-          days: daysWithoutItem.map((day) => {
+          days: trip.days.map((day) => {
+            if (day.id === sourceDayId) {
+              return { ...day, items: day.items.filter((i) => i.id !== itemId) };
+            }
             if (day.id === targetDayId) {
-              targetIndex = day.items.length;
-              return {
-                ...day,
-                items: [...day.items, itemToMove!],
-              };
+              return { ...day, items: [...day.items, itemToMove!] };
             }
             return day;
           }),
@@ -342,6 +345,84 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (err) {
       console.warn('Backend moveItemToDay failed:', err);
+    }
+  };
+
+  const sortDayChronologically = async (tripId: string, dayId: string) => {
+    const parseTimeToMinutes = (timeStr: string): number => {
+      if (!timeStr) return 0;
+      const cleaned = timeStr.trim().toUpperCase();
+      const isPM = cleaned.includes('PM');
+      const isAM = cleaned.includes('AM');
+      const match = cleaned.match(/(\d+)(?::(\d+))?/);
+      if (!match) return 0;
+      let hours = parseInt(match[1], 10);
+      const minutes = match[2] ? parseInt(match[2], 10) : 0;
+      if (isPM && hours < 12) hours += 12;
+      if (isAM && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    };
+
+    const targetTrip = trips.find((t) => t.id === tripId);
+    const targetDay = targetTrip?.days.find((d) => d.id === dayId);
+    if (!targetDay || targetDay.items.length <= 1) return;
+
+    const sortedItems = [...targetDay.items].sort((a, b) => {
+      const timeA = parseTimeToMinutes(a.startTime);
+      const timeB = parseTimeToMinutes(b.startTime);
+      return timeA - timeB;
+    });
+
+    setTrips((prev) =>
+      prev.map((trip) => {
+        if (trip.id !== tripId) return trip;
+        return {
+          ...trip,
+          days: trip.days.map((day) => {
+            if (day.id !== dayId) return day;
+            return { ...day, items: sortedItems };
+          }),
+        };
+      })
+    );
+
+    try {
+      const moves = sortedItems.map((item, index) => ({
+        itemId: item.id,
+        dayId,
+        orderIndex: index,
+      }));
+      await fetch(`/api/trips/${tripId}/items/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves }),
+      });
+    } catch (err) {
+      console.warn('Backend sortDayChronologically failed:', err);
+    }
+  };
+
+  const recalculateTransit = async (tripId: string, dayId: string) => {
+    try {
+      const res = await fetch(`/api/trips/${tripId}/days/${dayId}/recalculate-transit`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.day) {
+          setTrips((prev) =>
+            prev.map((trip) => {
+              if (trip.id !== tripId) return trip;
+              return {
+                ...trip,
+                days: trip.days.map((day) => (day.id === dayId ? data.day : day)),
+              };
+            })
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('Backend recalculateTransit failed:', err);
     }
   };
 
@@ -674,6 +755,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         moveItemToDay,
         addItem,
         deleteItem,
+        sortDayChronologically,
+        recalculateTransit,
         toggleChecklist,
         addChecklist,
         deleteChecklist,

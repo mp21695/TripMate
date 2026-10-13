@@ -5,6 +5,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ItineraryItem, ActivityCategory } from '@/types';
 import { GripVertical, Clock, MapPin, Trash2, ExternalLink, Utensils, Mountain, Car, Hotel, Compass } from 'lucide-react';
+import { buildSinglePlaceMapUrl } from '@/lib/maps/googleMapsRoute';
 
 interface ActivityCardProps {
   item: ItineraryItem;
@@ -58,9 +59,7 @@ export function ActivityCard({
   const badge = getCategoryBadge(item.category);
   const BadgeIcon = badge.icon;
 
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    item.locationName
-  )}`;
+  const mapsUrl = buildSinglePlaceMapUrl(item);
 
   return (
     <div

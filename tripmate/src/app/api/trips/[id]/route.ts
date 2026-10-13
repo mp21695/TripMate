@@ -8,7 +8,14 @@ import { Role, Visibility } from '@prisma/client';
 
 const fullTripInclude = {
   members: { include: { user: true } },
-  days: { include: { items: true } },
+  days: {
+    include: {
+      items: {
+        orderBy: { orderIndex: 'asc' as const },
+      },
+    },
+    orderBy: { dayNumber: 'asc' as const },
+  },
   checklist: { include: { assignedTo: true } },
   expenses: { include: { paidBy: true } },
   notes: { include: { author: true } },
