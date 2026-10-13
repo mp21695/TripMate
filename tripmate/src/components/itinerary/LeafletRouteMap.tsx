@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { ItineraryItem } from '@/types';
 import { hasValidCoordinates, buildSinglePlaceMapUrl } from '@/lib/maps/googleMapsRoute';
+import { clusterItineraryItems } from '@/lib/maps/markerSpiderfy';
 
 interface LeafletRouteMapProps {
   items: ItineraryItem[];
@@ -32,8 +33,128 @@ export function LeafletRouteMap({
 }: LeafletRouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const routesLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const spiderfyLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const markersMapRef = useRef<Map<string, L.Marker>>(new Map());
+
+  // Render markers, anchor dots, and connector lines using spiderfy layout
+  const renderMarkersAndSpiderfy = useCallback(() => {
+    const map = mapRef.current;
+    const spiderfyLayer = spiderfyLayerGroupRef.current;
+    if (!map || !spiderfyLayer) return;
+
+    spiderfyLayer.clearLayers();
+    markersMapRef.current.clear();
+
+    const validItems = items.filter(hasValidCoordinates);
+    if (validItems.length === 0) return;
+
+    // Cluster items using the deterministic spiderfy algorithm
+    const clusters = clusterItineraryItems(
+      validItems,
+      (ll) => map.latLngToLayerPoint(ll),
+      (p) => {
+        const ll = map.layerPointToLatLng(L.point(p.x, p.y));
+        return [ll.lat, ll.lng];
+      }
+    );
+
+    clusters.forEach((cluster) => {
+      // If this cluster has multiple colliding stops, render subtle true position anchor dot
+      if (cluster.items.length > 1) {
+        L.circleMarker(cluster.anchorPosition, {
+          radius: 3.5,
+          color: '#ffb000',
+          fillColor: '#14161a',
+          fillOpacity: 1,
+          weight: 2,
+          interactive: false,
+        }).addTo(spiderfyLayer);
+      }
+
+      cluster.items.forEach((spiderfied) => {
+        const { item, orderIndex, truePosition, visualPosition, isOffset } = spiderfied;
+
+        // Draw subtle connector line from true position to offset visual position
+        if (isOffset) {
+          L.polyline([truePosition, visualPosition], {
+            color: '#ffb000',
+            weight: 1.5,
+            opacity: 0.65,
+            dashArray: '3, 4',
+            interactive: false,
+          }).addTo(spiderfyLayer);
+        }
+
+        const markerIcon = L.divIcon({
+          className: 'tripmate-leaflet-marker',
+          html: `
+            <div class="relative flex items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-110" title="Stop #${orderIndex + 1}: ${escapeHtml(item.title)}">
+              <div class="tripmate-marker-badge w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold shadow-2xl transition-all ${
+                item.coordsVerified === false
+                  ? 'bg-[#181b20] text-amber-400 border border-amber-500/70 ring-2 ring-amber-500/20'
+                  : 'bg-[#181b20] text-white border border-white/40 hover:border-white hover:text-amber-300'
+              }">
+                ${orderIndex + 1}
+              </div>
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+        });
+
+        const singleUrl = buildSinglePlaceMapUrl(item);
+        const popupContent = `
+          <div class="p-3 min-w-[200px] max-w-[260px] bg-[#14161a] text-white font-sans rounded-xs">
+            <div class="text-[9px] font-mono text-[#ffb000] uppercase tracking-wider mb-0.5 flex justify-between">
+              <span>STOP #${orderIndex + 1}</span>
+              <span>${escapeHtml(item.startTime)}</span>
+            </div>
+            <div class="font-serif text-sm font-semibold text-white leading-tight mt-0.5">${escapeHtml(
+              item.title
+            )}</div>
+            <div class="text-[10px] text-[#8a8c8e] font-mono mt-0.5 truncate">${escapeHtml(
+              item.locationName
+            )}</div>
+            ${
+              isOffset
+                ? '<div class="mt-1 text-[9px] font-mono text-amber-400/80 bg-amber-950/30 border border-amber-800/30 px-1 py-0.5 rounded-2xs">📍 Nearby stop (offset for clarity)</div>'
+                : ''
+            }
+            ${
+              item.coordsVerified === false
+                ? '<div class="mt-1 text-[9px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/30 px-1 py-0.5 rounded-2xs">⚠️ Approximate location</div>'
+                : ''
+            }
+            <div class="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] font-mono">
+              <span class="text-[#8a8c8e]">EST ₹${item.estimatedCost.toLocaleString(
+                'en-IN'
+              )}</span>
+              <a href="${singleUrl}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-[#ffb000] font-medium flex items-center gap-1">
+                MAPS ↗
+              </a>
+            </div>
+          </div>
+        `;
+
+        const marker = L.marker(visualPosition, {
+          icon: markerIcon,
+          zIndexOffset: orderIndex * 10,
+        }).addTo(spiderfyLayer);
+
+        marker.bindPopup(popupContent, {
+          className: 'tripmate-dark-popup',
+          offset: [0, -14],
+        });
+
+        marker.on('click', () => {
+          onSelectPin?.(item.id);
+        });
+
+        markersMapRef.current.set(item.id, marker);
+      });
+    });
+  }, [items, onSelectPin]);
 
   // 1. Initialize Leaflet Map Instance
   useEffect(() => {
@@ -65,9 +186,12 @@ export function LeafletRouteMap({
       maxZoom: 19,
     }).addTo(map);
 
-    // Create layer group for dynamic markers and route polylines
-    const layerGroup = L.layerGroup().addTo(map);
-    layerGroupRef.current = layerGroup;
+    // Create separate layer groups for route lines and markers/connectors
+    const routesLayer = L.layerGroup().addTo(map);
+    const spiderfyLayer = L.layerGroup().addTo(map);
+
+    routesLayerGroupRef.current = routesLayer;
+    spiderfyLayerGroupRef.current = spiderfyLayer;
     mapRef.current = map;
 
     // Observe container resizing to automatically invalidate size
@@ -82,125 +206,80 @@ export function LeafletRouteMap({
       resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
-      layerGroupRef.current = null;
+      routesLayerGroupRef.current = null;
+      spiderfyLayerGroupRef.current = null;
     };
   }, []);
 
-  // 2. Update Markers, Routes, and Bounds when items or order changes
+  // 2. Listen for zoom events to recalculate spiderfy offsets at new scale
   useEffect(() => {
     const map = mapRef.current;
-    const layerGroup = layerGroupRef.current;
-    if (!map || !layerGroup) return;
+    if (!map) return;
 
-    layerGroup.clearLayers();
-    markersMapRef.current.clear();
+    const handleZoom = () => {
+      renderMarkersAndSpiderfy();
+    };
+
+    map.on('zoomend', handleZoom);
+    return () => {
+      map.off('zoomend', handleZoom);
+    };
+  }, [renderMarkersAndSpiderfy]);
+
+  // 3. Update Routes (using REAL coordinates), Markers (spiderfied), and Bounds when items change
+  useEffect(() => {
+    const map = mapRef.current;
+    const routesLayer = routesLayerGroupRef.current;
+    if (!map || !routesLayer) return;
+
+    routesLayer.clearLayers();
 
     const validItems = items.filter(hasValidCoordinates);
     if (validItems.length === 0) {
+      spiderfyLayerGroupRef.current?.clearLayers();
+      markersMapRef.current.clear();
       // Default viewpoint fallback (India center)
       map.setView([20.5937, 78.9629], 5);
       return;
     }
 
-    const latlngs: L.LatLngExpression[] = validItems.map((item) => [
+    // IMPORTANT: Draw route lines strictly using TRUE, UNTOUCHED coordinates
+    const trueLatLngs: L.LatLngExpression[] = validItems.map((item) => [
       item.lat,
       item.lng,
     ]);
 
-    // Draw route lines connecting waypoints in exact itinerary order
-    if (latlngs.length > 1) {
+    if (trueLatLngs.length > 1) {
       // Outer ambient glow polyline
-      L.polyline(latlngs, {
+      L.polyline(trueLatLngs, {
         color: '#ffffff',
         weight: 6,
         opacity: 0.15,
-      }).addTo(layerGroup);
+      }).addTo(routesLayer);
 
       // Core amber dashed route polyline
-      L.polyline(latlngs, {
+      L.polyline(trueLatLngs, {
         color: '#ffb000',
         weight: 3.5,
         opacity: 0.9,
         dashArray: '6, 6',
-      }).addTo(layerGroup);
+      }).addTo(routesLayer);
     }
 
-    // Add numbered waypoint markers in exact itinerary order
-    validItems.forEach((item, index) => {
-      const markerIcon = L.divIcon({
-        className: 'tripmate-leaflet-marker',
-        html: `
-          <div class="relative flex items-center justify-center cursor-pointer transition-transform duration-200 hover:scale-110">
-            <div class="tripmate-marker-badge w-7 h-7 rounded-full flex items-center justify-center font-mono text-xs font-bold shadow-2xl transition-all ${
-              item.coordsVerified === false
-                ? 'bg-[#181b20] text-amber-400 border border-amber-500/70 ring-2 ring-amber-500/20'
-                : 'bg-[#181b20] text-white border border-white/40 hover:border-white hover:text-amber-300'
-            }">
-              ${index + 1}
-            </div>
-          </div>
-        `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-      });
+    // Render markers with visual spiderfy offsets and connector lines
+    renderMarkersAndSpiderfy();
 
-      const singleUrl = buildSinglePlaceMapUrl(item);
-      const popupContent = `
-        <div class="p-3 min-w-[200px] max-w-[260px] bg-[#14161a] text-white font-sans rounded-xs">
-          <div class="text-[9px] font-mono text-[#ffb000] uppercase tracking-wider mb-0.5 flex justify-between">
-            <span>STOP #${index + 1}</span>
-            <span>${escapeHtml(item.startTime)}</span>
-          </div>
-          <div class="font-serif text-sm font-semibold text-white leading-tight mt-0.5">${escapeHtml(
-            item.title
-          )}</div>
-          <div class="text-[10px] text-[#8a8c8e] font-mono mt-0.5 truncate">${escapeHtml(
-            item.locationName
-          )}</div>
-          ${
-            item.coordsVerified === false
-              ? '<div class="mt-1 text-[9px] font-mono text-amber-400 bg-amber-950/40 border border-amber-800/30 px-1 py-0.5 rounded-2xs">⚠️ Approximate location</div>'
-              : ''
-          }
-          <div class="mt-2 pt-1.5 border-t border-white/10 flex items-center justify-between text-[9px] font-mono">
-            <span class="text-[#8a8c8e]">EST ₹${item.estimatedCost.toLocaleString(
-              'en-IN'
-            )}</span>
-            <a href="${singleUrl}" target="_blank" rel="noopener noreferrer" class="text-white hover:text-[#ffb000] font-medium flex items-center gap-1">
-              MAPS ↗
-            </a>
-          </div>
-        </div>
-      `;
-
-      const marker = L.marker([item.lat, item.lng], {
-        icon: markerIcon,
-        zIndexOffset: index * 10,
-      }).addTo(layerGroup);
-
-      marker.bindPopup(popupContent, {
-        className: 'tripmate-dark-popup',
-        offset: [0, -14],
-      });
-
-      marker.on('click', () => {
-        onSelectPin?.(item.id);
-      });
-
-      markersMapRef.current.set(item.id, marker);
-    });
-
-    // Fit map bounds to waypoints
-    if (latlngs.length > 1) {
-      map.fitBounds(L.latLngBounds(latlngs), {
+    // Fit map bounds to true waypoints
+    if (trueLatLngs.length > 1) {
+      map.fitBounds(L.latLngBounds(trueLatLngs), {
         padding: [50, 50],
         maxZoom: 14,
         animate: true,
       });
-    } else if (latlngs.length === 1) {
-      map.setView(latlngs[0], 13);
+    } else if (trueLatLngs.length === 1) {
+      map.setView(trueLatLngs[0], 13);
     }
-  }, [items, onSelectPin]);
+  }, [items, renderMarkersAndSpiderfy]);
 
   // 3. Highlight/Open Popup when activeItemId changes externally without resetting map bounds
   useEffect(() => {
