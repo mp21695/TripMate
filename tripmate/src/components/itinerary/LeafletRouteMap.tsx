@@ -103,6 +103,7 @@ const CARTO_API_KEY =
 
 export function LeafletRouteMap({
   items,
+  destinationName,
   activeItemId,
   onSelectPin,
 }: LeafletRouteMapProps) {
@@ -177,7 +178,7 @@ export function LeafletRouteMap({
           iconAnchor: [14, 14],
         });
 
-        const singleUrl = buildSinglePlaceMapUrl(item);
+        const singleUrl = buildSinglePlaceMapUrl(item, destinationName);
         const popupContent = `
           <div class="p-3 min-w-[210px] max-w-[270px] bg-[#14161a] text-white font-sans rounded-xs shadow-2xl">
             <div class="flex items-center justify-between gap-2 mb-1.5 pb-1.5 border-b border-white/10">
@@ -232,7 +233,7 @@ export function LeafletRouteMap({
         markersMapRef.current.set(item.id, marker);
       });
     });
-  }, [items, onSelectPin]);
+  }, [items, destinationName, onSelectPin]);
 
   // 1. Initialize Leaflet Map Instance with guaranteed valid center & zoom
   useEffect(() => {

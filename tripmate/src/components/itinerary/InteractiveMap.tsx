@@ -36,7 +36,7 @@ export function InteractiveMap({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const validItems = items.filter(hasValidCoordinates);
-  const dayRoute = buildGoogleMapsDayRouteUrl(items);
+  const dayRoute = buildGoogleMapsDayRouteUrl(items, destinationName);
 
   const handleOpenGoogleMaps = () => {
     if (!dayRoute.url) {

@@ -47,7 +47,7 @@ export function ItineraryCanvas({ tripId }: { tripId: string }) {
   const [transitRecalculating, setTransitRecalculating] = useState(false);
 
   const handleOpenDayInMaps = () => {
-    const route = buildGoogleMapsDayRouteUrl(items);
+    const route = buildGoogleMapsDayRouteUrl(items, currentTrip?.destination || currentTrip?.stateOrRegion);
     if (!route.url) {
       setDayToast(route.message || 'No valid coordinates found for this day.');
       setTimeout(() => setDayToast(null), 3500);
