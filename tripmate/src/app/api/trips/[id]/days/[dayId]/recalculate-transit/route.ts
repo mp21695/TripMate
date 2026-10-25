@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 import { requireTripRole, handleRbacError } from '@/lib/rbac';
-import { calculateTransit } from '@/lib/external/mapboxTransit';
+import { recalculateDayTransit } from '@/lib/transitRecalc';
 import { serializeDay } from '@/lib/serializers';
-import { Role, TransitMode } from '@prisma/client';
+import { Role } from '@prisma/client';
 
 export async function POST(
   req: NextRequest,
@@ -21,11 +21,6 @@ export async function POST(
 
     const day = await prisma.day.findUnique({
       where: { id: dayId },
-      include: {
-        items: {
-          orderBy: { orderIndex: 'asc' },
-        },
-      },
     });
 
     if (!day || day.tripId !== tripId) {
@@ -35,41 +30,7 @@ export async function POST(
       );
     }
 
-    const items = day.items;
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-
-      if (i < items.length - 1) {
-        const nextItem = items[i + 1];
-        const mode = item.transitMode || TransitMode.SCOOTER;
-
-        const transit = await calculateTransit(
-          { lat: item.lat, lng: item.lng },
-          { lat: nextItem.lat, lng: nextItem.lng },
-          mode
-        );
-
-        await prisma.itineraryItem.update({
-          where: { id: item.id },
-          data: {
-            transitMode: transit.mode,
-            transitMinutes: transit.durationMinutes,
-            transitKm: transit.distanceKm,
-          },
-        });
-      } else {
-        // Clear transit for the last item of the day
-        await prisma.itineraryItem.update({
-          where: { id: item.id },
-          data: {
-            transitMode: null,
-            transitMinutes: null,
-            transitKm: null,
-          },
-        });
-      }
-    }
+    await recalculateDayTransit(dayId);
 
     const updatedDay = await prisma.day.findUnique({
       where: { id: dayId },

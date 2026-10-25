@@ -170,6 +170,71 @@ AI Copilot suggestion endpoint choosing the best day for a natural language prom
 - **Validations**: `dayId` (if provided or chosen) must belong to `tripId` (returns `400 Bad Request` if invalid).
 - **Response (200 OK)**: `{ "dayId": "day-1", "item": { ..., "coordsVerified": true } }`
 
+#### `POST /api/ai/parse-trip`
+Extracts structured travel parameters from unstructured user text and geocodes the destination.
+- **Auth**: Session Cookie
+- **Rate Limit**: 10 requests / min per user
+- **Request Body**:
+  ```json
+  {
+    "text": "Plan a 3-day beach trip to Goa starting 2026-11-20 with a budget of 30000 INR for 4 friends, relaxed vibe"
+  }
+  ```
+- **Validations**: `text` max 500 characters, min 1 character (returns `400 Bad Request` if invalid).
+- **Data Protection**: User input text is treated strictly as data, never system instructions. Missing parameters are returned as `null` without guessing.
+- **Response (200 OK)**:
+  ```json
+  {
+    "destination": "Goa",
+    "days": 3,
+    "budget": 30000,
+    "travelers": 4,
+    "vibe": "Relaxed",
+    "startDate": "2026-11-20",
+    "stateOrRegion": "Goa, India",
+    "lat": 15.2993,
+    "lng": 74.1240
+  }
+  ```
+
+#### `POST /api/ai/tagline`
+Generates a short, poetic trip tagline (maximum 8 words, no emojis).
+- **Auth**: Session Cookie
+- **Role**: `OWNER`, `EDITOR`, or `VIEWER` (members only; returns `403 Forbidden` for non-members)
+- **Request Body**:
+  ```json
+  {
+    "tripId": "goa-2026"
+  }
+  ```
+- **Response (200 OK)**:
+  ```json
+  {
+    "tagline": "Golden tides, cliffside laughter and ocean sunsets"
+  }
+  ```
+
+#### `POST /api/ai/generate-draft-stream`
+Streams multi-day draft generation as newline-delimited JSON (`application/x-ndjson`), emitting an outline followed by days as they complete (max 2 parallel Gemini calls).
+- **Auth**: Session Cookie
+- **Rate Limit**: 5 requests / min per user
+- **Execution Limit**: `maxDuration = 120` seconds
+- **Request Body**:
+  ```json
+  {
+    "destination": "Goa",
+    "days": 2,
+    "budget": 15000,
+    "vibe": "Beach & Chill"
+  }
+  ```
+- **Stream Sequence**:
+  1. `{"type":"outline","days":[{"dayNumber":1,"title":"..."}]}`
+  2. `{"type":"day","day":{"dayNumber":1,"title":"...","items":[...]}}`
+  3. `{"type":"day","day":{"dayNumber":2,"title":"...","items":[...]}}`
+  4. `{"type":"done"}`
+  *(If one day fails, emits `{"type":"error","dayNumber":N}` and continues with remaining days)*
+
 ---
 
 ### 4. Trip CRUD & Utility Routes
@@ -181,10 +246,33 @@ AI Copilot suggestion endpoint choosing the best day for a natural language prom
 - `DELETE /api/trips/[id]`: Delete trip (`OWNER` only).
 - `POST /api/trips/[id]/invite`: Generate invite link (`OWNER` only).
 - `POST /api/join`: Join trip with invite token.
+- `POST /api/trips/[id]/import-draft`: Batch import AI-generated draft days/items into trip (`OWNER`/`EDITOR` only). Matches by `dayNumber`, sets titles, appends items with ordered indices, strips `coordsVerified`, recalculates transit best-effort in one atomic `$transaction`, and returns `{ trip }`.
+- `POST /api/trips/[id]/ai/chat`: Interactive itinerary co-pilot chat (`OWNER`/`EDITOR` only, rate limited, last 10 messages max 1000 chars each). Receives full itinerary context server-side. Gemini returns `{ reply, proposal }` via structured output without modifying the database. Drops invalid changes and geocodes/normalizes "add" items.
+- `POST /api/trips/[id]/ai/apply`: Atomic execution of approved proposal changes (`OWNER`/`EDITOR` only). Validates all `dayId` and `itemId` against the trip, applies all changes in a single `prisma.$transaction`, renumbers `orderIndex` contiguously (`0..n-1`), recalculates transit for affected days, and returns the full serialized trip.
+- `POST /api/trips/[id]/days/[dayId]/optimize`: Intelligently reorders day itinerary to minimize travel time (`OWNER`/`EDITOR` only). Requires at least 3 items with real coordinates. Preserves fixed anchors (`FOOD`, `LODGING`, `TRANSIT`) while permuting free items among free time slots. Uses Mapbox/Haversine transit matrix. Returns `{ proposal, beforeMinutes, afterMinutes, explanation }` with a 2-sentence Gemini explanation. Does not write to the database.
 - `POST /api/trips/[id]/days/[dayId]/items`: Add item (`OWNER`/`EDITOR`).
 - `PUT /api/trips/[id]/items/[itemId]`: Edit item (`OWNER`/`EDITOR`).
 - `DELETE /api/trips/[id]/items/[itemId]`: Delete item (`OWNER`/`EDITOR`).
 - `PUT /api/trips/[id]/items/reorder`: Atomic multi-item or cross-day reordering (`OWNER`/`EDITOR`).
+- `POST /api/trips/[id]/days/[dayId]/recalculate-transit`: Recalculate transit durations/distances (`OWNER`/`EDITOR`).
 - `POST / PATCH / DELETE /api/trips/[id]/checklist/...`: Manage packing checklist.
 - `POST / DELETE /api/trips/[id]/expenses/...`: Manage trip expenses.
 - `POST / DELETE /api/trips/[id]/notes/...`: Manage corkboard notes.
+
+---
+
+### 5. AI Co-Pilot Proposal Schema (`src/lib/proposal.ts`)
+
+Proposals are strictly validated with Zod:
+```ts
+{
+  summary: string;
+  changes: Change[]; // Max 20 changes
+}
+```
+Where `Change` is one of:
+- **`add`**: `{ type: "add", dayId: string, item: { title, category, startTime, endTime, estimatedCost, lat, lng, locationName, notes?, bookingRef? }, orderIndex?: number }`
+- **`move`**: `{ type: "move", itemId: string, toDayId: string, orderIndex: number }`
+- **`update`**: `{ type: "update", itemId: string, fields: { title?, category?, startTime?, endTime?, estimatedCost?, lat?, lng?, locationName?, notes?, bookingRef? } }`
+- **`delete`**: `{ type: "delete", itemId: string }`
+
