@@ -282,7 +282,7 @@ Respond with JSON containing:
             lat: rawItem.lat ?? trip.lat,
             lng: rawItem.lng ?? trip.lng,
             locationName: cleanedLoc,
-            notes: rawItem.notes ? cleanPlaceName(rawItem.notes) : null,
+            notes: rawItem.notes ? cleanPlaceName(rawItem.notes) : undefined,
             bookingRef: rawItem.bookingRef || null,
           };
 

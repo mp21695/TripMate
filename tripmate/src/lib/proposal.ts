@@ -19,6 +19,7 @@ export const proposalAddItemSchema = z.object({
   locationName: z.string().min(1, 'locationName is required'),
   notes: z.string().nullable().optional(),
   bookingRef: z.string().nullable().optional(),
+  coordsVerified: z.boolean().optional(),
 });
 
 export const editableItemFieldsSchema = z.object({
