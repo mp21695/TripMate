@@ -83,16 +83,42 @@ export function InteractiveMap({
       </div>
 
       {/* Bottom Map Status Bar */}
-      <div className="p-3 bg-[#14161a] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-[#8a8c8e] z-[400]">
-        <div className="flex items-center space-x-2">
-          <Compass className="w-3.5 h-3.5 text-[#ffb000]" />
-          <span className="hidden sm:inline">SYNCHRONIZED ROUTE • DRAG TO PAN • WHEEL TO ZOOM</span>
-          <span className="sm:hidden">PAN & ZOOM ROUTE</span>
+      <div className="p-3 bg-[#14161a] border-t border-white/10 flex items-center justify-between text-[10px] font-mono text-[#8a8c8e] z-[400] gap-2 flex-wrap">
+        <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-1.5">
+            <Compass className="w-3.5 h-3.5 text-[#ffb000]" />
+            <span className="hidden lg:inline">SYNCHRONIZED ROUTE</span>
+            <span className="lg:hidden">ROUTE</span>
+          </div>
+
+          {/* Category Theme Indicators Legend */}
+          <div className="hidden sm:flex items-center space-x-2 pl-2 border-l border-white/10 text-[9px] text-[#8a8c8e]">
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#ffb000]"></span>
+              <span>Attraction</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#fb923c]"></span>
+              <span>Food</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#c084fc]"></span>
+              <span>Stay</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8]"></span>
+              <span>Transit</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#34d399]"></span>
+              <span>Activity</span>
+            </span>
+          </div>
         </div>
 
         <button
           onClick={handleOpenGoogleMaps}
-          className="text-white hover:text-[#ffb000] flex items-center space-x-1.5 font-medium transition-colors cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1 rounded-full text-[10px] tracking-wider uppercase"
+          className="text-white hover:text-[#ffb000] flex items-center space-x-1.5 font-medium transition-colors cursor-pointer bg-white/5 hover:bg-white/10 border border-white/10 px-2.5 py-1 rounded-full text-[10px] tracking-wider uppercase ml-auto"
           title={dayRoute.url ? 'Open full day route in Google Maps' : (dayRoute.message || 'No valid stops to route')}
         >
           <span>OPEN DAY IN GOOGLE MAPS</span>
